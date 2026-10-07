@@ -283,12 +283,17 @@ footer a { color: var(--accent); }
     if (!CLOUD.col) return;                       // cloud ještě/vůbec nedostupný
     cloudPending[k] = v;
     clearTimeout(cloudTimers[k]);
-    cloudTimers[k] = setTimeout(async () => {     // sloučí rychlé změny do jednoho zápisu
-      const val = cloudPending[k];
-      try { await CLOUD.col.doc(k).set({ d: val }); }
-      catch (e) { if (e && e.code === 'unavailable') { try { await CLOUD.col.doc(k).set({ d: val }); } catch {} } }
-    }, 1200);
+    cloudTimers[k] = setTimeout(() => flushKey(k), 1200);  // sloučí rychlé změny do jednoho zápisu
   }
+  async function flushKey(k) {
+    if (!CLOUD.col || cloudPending[k] === undefined) return;
+    clearTimeout(cloudTimers[k]);
+    const val = cloudPending[k];
+    delete cloudPending[k];
+    try { await CLOUD.col.doc(k).set({ d: val }); }
+    catch (e) { if (e && e.code === 'unavailable') { try { await CLOUD.col.doc(k).set({ d: val }); } catch {} } }
+  }
+  function cloudFlush() { for (const k in cloudPending) flushKey(k); }   // při zavření/přepnutí: ulož hned
   async function cloudInit() {
     const C = (typeof window !== 'undefined' && window.claude && window.claude.use) ? window.claude : null;
     if (!C) return;                               // mimo Claude (lokální server) => jen prohlížeč
@@ -631,6 +636,9 @@ footer a { color: var(--accent); }
   });
 
   syncTop(); render(); cloudInit();
+  // při skrytí/zavření stránky (hlavně mobil v pozadí) ulož rozdělaný postup do účtu hned
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloudFlush(); });
+  window.addEventListener('pagehide', cloudFlush);
   fetch('questions.json').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => {
     DATA = d; subjects = d.subjects;
     S.subj = S.subj.filter(id => subjects.some(s => s.id === id));
