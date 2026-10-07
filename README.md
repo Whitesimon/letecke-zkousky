@@ -35,9 +35,14 @@ Appka má `manifest.json` + `sw.js` (service worker), takže jde přidat na ploc
 - učební režim s okamžitým správným řešením a vysvětlením
 - náhodné / sekvenční pořadí otázek, sledování postupu
 - opakování chyb (jen neúspěšné otázky)
+- **označené otázky (hvězdičky)** + režim „Označené" pro cílené opakování
 - simulace zkoušky na čas
 - výběr témat, míchání odpovědí
-- statistiky uložené lokálně v prohlížeči (nic se neodesílá)
+- **denní série 🔥** (motivace k pravidelnému studiu)
+- **odhad připravenosti** ve statistikách (pravidlo 75 % na předmět)
+- **přepínač motivu** (světlý / tmavý / auto)
+- **denní připomínky** (oznámení; nejlíp po přidání na plochu – viz [DEPLOY.md](DEPLOY.md))
+- statistiky k Claude účtu (napříč zařízeními), jinak lokálně v prohlížeči
 
 ## Zdroje dat
 - PPL/LAPL: zveřejněná část databáze ÚCL (cca 75 %, zbytek je neveřejný)

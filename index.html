@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Letecké zkoušky">
+<script>try{var t=(JSON.parse(localStorage.getItem('ppl.settings'))||{}).theme;if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head><body>
 <title>PPL/LAPL Otázky</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -65,7 +66,7 @@ nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: 
 .panel { display: flex; flex-direction: column; gap: 12px; }
 .label { font: 600 .75rem/1 var(--f-body); text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.modes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .mode { text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .mode b { font: 700 1.15rem/1.1 var(--f-display); letter-spacing: .02em; }
 .mode small { color: var(--muted); font-size: .8rem; line-height: 1.3; }
@@ -176,9 +177,23 @@ footer a { color: var(--accent); }
 .lightbox img { max-width: 100%; max-height: 100%; background: #fff; border-radius: 6px; }
 .lightbox .x { position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); right: 12px; background: #fff; color: #142030; border: 0; border-radius: 8px; padding: 6px 12px; font-weight: 700; }
 
+/* doplňkové funkce: motiv, hvězdičky, série, připravenost, připomínky */
+.iconbtn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 10px; font-size: .95rem; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.iconbtn:hover { border-color: var(--accent); color: var(--ink); }
+.streak { margin-left: auto; align-self: center; font-size: .85rem; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.streak b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.flagbtn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 4px 10px; font-size: .88rem; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.flagbtn[aria-pressed="true"] { border-color: #d99706; color: #b9810a; background: rgba(217,151,6,.12); }
+.flagbtn .star { font-size: 1rem; line-height: 1; }
+.pill.warn { background: rgba(217,151,6,.15); color: #b9810a; }
+.ss .rd { justify-self: end; }
+.remind { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+.remind .t { min-width: 0; }
+.remind .t b { font: 700 1.1rem/1.1 var(--f-display); }
+.remind .t p { margin: 2px 0 0; color: var(--muted); font-size: .85rem; }
+
 @media (max-width: 620px) {
   .modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .modes .mode:first-child { grid-column: 1 / -1; }
   .card { padding: 16px; }
   .kpis { grid-template-columns: 1fr 1fr 1fr; }
   .kpi .v { font-size: 1.5rem; }
@@ -195,16 +210,20 @@ footer a { color: var(--accent); }
       <h1>PPL<span>/</span>LAPL<span>/</span>SPL Otázky</h1>
       <p>Zkušební otázky pro teoretickou zkoušku pilota letounu, vrtulníku a kluzáku</p>
     </div>
-    <div class="seg" role="group" aria-label="Kategorie letadla">
-      <button type="button" id="v-A" data-v="A">Letoun</button>
-      <button type="button" id="v-H" data-v="H">Vrtulník</button>
-      <button type="button" id="v-S" data-v="S">Kluzák SPL</button>
+    <div class="hdrbtns" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div class="seg" role="group" aria-label="Kategorie letadla">
+        <button type="button" id="v-A" data-v="A">Letoun</button>
+        <button type="button" id="v-H" data-v="H">Vrtulník</button>
+        <button type="button" id="v-S" data-v="S">Kluzák SPL</button>
+      </div>
+      <button type="button" class="iconbtn" id="theme-btn" aria-label="Přepnout motiv" title="Světlý / tmavý / automatický motiv"></button>
     </div>
   </header>
 
   <nav class="tabs" role="tablist">
     <button type="button" role="tab" id="tab-ucit" data-tab="ucit">Procvičování</button>
     <button type="button" role="tab" id="tab-stat" data-tab="stat">Moje statistiky</button>
+    <span class="streak" id="streak" hidden></span>
   </nav>
 
   <section id="pane-ucit" class="panel">
@@ -215,6 +234,7 @@ footer a { color: var(--accent); }
         <button type="button" class="mode" data-mode="random"><b>Náhodně</b><small>Otázky v náhodném pořadí</small></button>
         <button type="button" class="mode" data-mode="seq"><b>Postupně</b><small>Jedna po druhé, pamatuje si místo</small></button>
         <button type="button" class="mode" data-mode="wrong"><b>Chybné</b><small>Jen otázky, kde jsem chyboval</small></button>
+        <button type="button" class="mode" data-mode="flag"><b>Označené</b><small>Jen otázky s hvězdičkou</small></button>
         <button type="button" class="mode" data-mode="exam"><b>Zkouška</b><small>Test na čas jako u ÚCL</small></button>
       </div>
     </div>
@@ -235,7 +255,7 @@ footer a { color: var(--accent); }
     <p>Otázky PPL a LAPL a jejich správné odpovědi pocházejí ze zveřejněné části databáze <a href="https://www.caa.gov.cz/zkusebni-otazky-pro-zkousky-teoretickych-znalosti-ppl-lapl/" target="_blank" rel="noopener">Úřadu pro civilní letectví</a> (asi 75 % otázek, zbytek je důvěrný). Ke zkoušce se počítá úspěšnost alespoň 75 % v každém předmětu.</p>
     <p>Otázky SPL pocházejí z českého překladu databáze ECQB dodaného aeroklubem. Odpovědi zkontrolovala AI a sporné otázky mají po zodpovězení poznámku.</p>
     <p>Vysvětlení a schémata k otázkám napsala AI. Můžou obsahovat nepřesnosti, při nejasnostech platí výklad instruktora.</p>
-    <p>Statistiky se ukládají jen v tomto prohlížeči. Nikam se neodesílají a nikdo jiný je nevidí.</p>
+    <p>Na claude.ai se postup ukládá k tvému účtu (soukromě, jen pro tebe) a drží napříč zařízeními; na jiném hostingu jen v tomto prohlížeči.</p>
   </footer>
 </div>
 
@@ -273,6 +293,7 @@ footer a { color: var(--accent); }
   function record(q, ok) {
     const k = key(q), r = stats[k] || [0, 0, 0];
     r[0]++; if (ok) r[1]++; r[2] = ok ? 1 : 0; stats[k] = r; store.set('stats', stats);
+    touchStreak();
   }
 
   let DATA = null, subjects = [];
@@ -282,6 +303,77 @@ footer a { color: var(--accent); }
   let exam = null;
   let EXPL = null;         // vysvětlení: id -> {e, g}
   let learnPos = store.get('learn', {});
+  let flags = store.get('flags', {});                 // key(q) -> 1 (hvězdička)
+  let streak = store.get('streak', { last: null, count: 0 });
+
+  // ---------- hvězdičky (označené otázky) ----------
+  const isFlagged = q => !!flags[key(q)];
+  function toggleFlag(q) { const k = key(q); if (flags[k]) delete flags[k]; else flags[k] = 1; store.set('flags', flags); }
+  function flagBtn(q) {
+    const on = isFlagged(q);
+    return el('button', { type: 'button', class: 'flagbtn', 'aria-pressed': String(on),
+      title: on ? 'Odebrat z označených' : 'Označit hvězdičkou', onclick: () => { toggleFlag(q); render(); } },
+      el('span', { class: 'star', text: on ? '★' : '☆' }), on ? 'Označeno' : 'Označit');
+  }
+
+  // ---------- denní série ----------
+  const today = () => new Date().toISOString().slice(0, 10);
+  const plural = n => n === 1 ? ' den' : (n >= 2 && n <= 4 ? ' dny' : ' dní');
+  function touchStreak() {
+    const t = today(); if (streak.last === t) return;
+    const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+    streak.count = (streak.last === y) ? (streak.count || 0) + 1 : 1;
+    streak.last = t; store.set('streak', streak); updateStreakUI();
+  }
+  function updateStreakUI() {
+    const e = $('#streak'); if (!e) return;
+    const n = streak.count || 0, active = streak.last === today();
+    if (!n) { e.hidden = true; return; }
+    e.hidden = false; e.textContent = '';
+    e.append(el('span', { text: active ? '🔥' : '🕐' }), el('b', { text: String(n) }), plural(n));
+    e.title = active ? 'Procvičuješ ' + n + plural(n) + ' v řadě' : 'Posledně aktivní: ' + streak.last + '. Procvič dnes, ať série pokračuje.';
+  }
+
+  // ---------- motiv (světlý / tmavý / auto) ----------
+  function applyTheme() {
+    const t = S.theme || 'auto';
+    if (t === 'auto') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = t;
+    const b = $('#theme-btn'); if (!b) return;
+    b.textContent = '';
+    b.append(el('span', { text: t === 'light' ? '☀️' : t === 'dark' ? '🌙' : '🌓' }),
+      el('span', { text: t === 'light' ? 'Světlý' : t === 'dark' ? 'Tmavý' : 'Auto' }));
+  }
+  function cycleTheme() {
+    const order = ['auto', 'light', 'dark'];
+    S.theme = order[(order.indexOf(S.theme || 'auto') + 1) % order.length];
+    saveS(); applyTheme();
+  }
+
+  // ---------- denní připomínky (oznámení) ----------
+  async function enableReminders(statusEl) {
+    const say = (txt, ok) => { if (statusEl) { statusEl.textContent = txt; statusEl.style.color = ok ? 'var(--ok)' : 'var(--muted)'; } };
+    if (!('Notification' in window)) { say('Tento prohlížeč oznámení nepodporuje.'); return; }
+    let perm = Notification.permission;
+    if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch { perm = 'denied'; } }
+    if (perm !== 'granted') { say('Oznámení nejsou povolená. Povol je v nastavení prohlížeče.'); return; }
+    S.reminders = true; saveS();
+    let reg = null;
+    try { reg = await navigator.serviceWorker.ready; } catch {}
+    // nejspolehlivější bez serveru: periodická synchronizace (Chrome/Android)
+    try {
+      if (reg && 'periodicSync' in reg) {
+        const st = await navigator.permissions.query({ name: 'periodic-background-sync' });
+        if (st.state === 'granted') await reg.periodicSync.register('daily-reminder', { minInterval: 24 * 60 * 60 * 1000 });
+      }
+    } catch {}
+    // hned ukázat, že to funguje
+    try {
+      if (reg) await reg.showNotification('Letecké zkoušky', { body: 'Připomínky zapnuty ✈️ Uvidíme se u otázek!', icon: 'icon-192.png', badge: 'icon-192.png' });
+      else new Notification('Letecké zkoušky', { body: 'Připomínky zapnuty ✈️', icon: 'icon-192.png' });
+      say('Hotovo – připomínky zapnuty. ✓', true);
+    } catch { say('Oznámení povolena, ale spolehlivé denní doručení funguje až na vlastní adrese (ne na claude.ai).', true); }
+  }
 
   // ---------- cloud sync: postup uložený k Claude účtu, napříč zařízeními ----------
   // Lokálně (bez Claude) nebo odhlášený => tiše jen localStorage. Funkce je hoistovaná,
@@ -314,18 +406,22 @@ footer a { color: var(--accent); }
     if (!uid) return;
     CLOUD.col = db.collection('data/users/' + uid);
     let snaps;
-    try { snaps = await Promise.all(['settings', 'stats', 'seq', 'learn'].map(k => CLOUD.col.doc(k).get().catch(() => null))); }
+    try { snaps = await Promise.all(['settings', 'stats', 'seq', 'learn', 'flags', 'streak'].map(k => CLOUD.col.doc(k).get().catch(() => null))); }
     catch { return; }
-    const [rSet, rStats, rSeq, rLearn] = snaps.map(s => (s && s.exists) ? ((s.data() || {}).d || null) : null);
+    const [rSet, rStats, rSeq, rLearn, rFlags, rStreak] = snaps.map(s => (s && s.exists) ? ((s.data() || {}).d || null) : null);
     // sloučení: statistiky po klíčích (víc pokusů vyhrává), nastavení a pozice: účet má přednost
     if (rStats) for (const k in rStats) { const r = rStats[k], l = stats[k]; if (!l || (r[0] || 0) > (l[0] || 0)) stats[k] = r; }
     if (rSet) Object.assign(S, rSet);
     if (rSeq) Object.assign(seqPos, rSeq);
     if (rLearn) Object.assign(learnPos, rLearn);
+    if (rFlags) Object.assign(flags, rFlags);          // hvězdičky: sjednocení
+    if (rStreak && rStreak.last && (!streak.last || rStreak.last > streak.last ||
+        (rStreak.last === streak.last && (rStreak.count || 0) > (streak.count || 0)))) Object.assign(streak, rStreak);
     // ulož sloučený stav zpět (lokálně i do účtu) a překresli
     store.set('stats', stats); store.set('settings', S); store.set('seq', seqPos); store.set('learn', learnPos);
+    store.set('flags', flags); store.set('streak', streak);
     if (DATA) { S.subj = S.subj.filter(id => subjects.some(s => s.id === id)); buildChips(); }
-    syncTop(); render();
+    applyTheme(); updateStreakUI(); syncTop(); render();
   }
 
   const pool = () => DATA ? DATA.q[S.v].filter(q => S.subj.includes(q.s)) : [];
@@ -362,6 +458,7 @@ footer a { color: var(--accent); }
   $('#all-subj').addEventListener('click', () => { S.subj = subjects.map(s => s.id); changed(); });
   $('#no-subj').addEventListener('click', () => { S.subj = []; changed(); });
   $('#opt-shuffle').addEventListener('change', e => { S.shuffle = e.target.checked; saveS(); });
+  $('#theme-btn').addEventListener('click', cycleTheme);
 
   // ---------- obrázky ----------
   const lb = $('#lightbox');
@@ -396,6 +493,9 @@ footer a { color: var(--accent); }
     let cand = p;
     if (S.mode === 'wrong') {
       cand = p.filter(q => { const r = stats[key(q)]; return r && r[2] === 0; });
+      if (!cand.length) return { none: true };
+    } else if (S.mode === 'flag') {
+      cand = p.filter(q => flags[key(q)]);
       if (!cand.length) return { none: true };
     }
     // náhodně: přednost otázkám, které ještě nebyly / byly špatně, a ne posledních pár
@@ -450,7 +550,7 @@ footer a { color: var(--accent); }
       el('span', { class: 'k', text: LETTERS[ai] }), el('span', { text: a }), el('span', { class: 'mark', text: ai === q.c ? 'Správně' : '' })))));
     const card = el('article', { class: 'card' }, meta(q), el('p', { class: 'qtext', text: q.t }), figs(q), list, explainBox(q),
       q.p ? el('p', { class: 'note', text: 'Poznámka: ' + q.p }) : null,
-      el('div', { class: 'actions' }, el('button', { type: 'button', class: 'btn', onclick: () => go(-1), text: '← Předchozí' }), el('span', { class: 'sp' }),
+      el('div', { class: 'actions' }, flagBtn(q), el('button', { type: 'button', class: 'btn', onclick: () => go(-1), text: '← Předchozí' }), el('span', { class: 'sp' }),
         el('span', { class: 'keys' }, el('kbd', { text: '←' }), ' ', el('kbd', { text: '→' })),
         el('button', { type: 'button', class: 'btn primary', id: 'next', onclick: () => go(1), text: 'Další →' })));
     stage.append(card);
@@ -464,9 +564,13 @@ footer a { color: var(--accent); }
     stage.append(el('div', { class: 'scorebar' },
       el('span', {}, 'Teď: ', el('b', { text: session.ok + ' / ' + session.n }), ' správně' + (session.n ? ' (' + pct(session.ok, session.n) + ' %)' : '')),
       S.mode === 'seq' && cur && cur.q ? el('span', {}, 'Pozice ', el('b', { text: (cur.idx + 1) + ' / ' + cur.total })) : null,
-      S.mode === 'wrong' && cur && cur.q ? el('span', {}, 'Zbývá chybných ', el('b', { text: String(cur.left) })) : null));
+      S.mode === 'wrong' && cur && cur.q ? el('span', {}, 'Zbývá chybných ', el('b', { text: String(cur.left) })) : null,
+      S.mode === 'flag' && cur && cur.q ? el('span', {}, 'Označených ', el('b', { text: String(cur.left) })) : null));
     if (!cur || cur.none) {
-      stage.append(el('div', { class: 'card empty' }, el('b', { text: 'Žádné chybné otázky' }), 'Ve vybraných tématech teď nemáte žádnou otázku naposledy zodpovězenou špatně. Pokračujte v režimu Náhodně.'));
+      const m = S.mode === 'flag'
+        ? ['Žádné označené otázky', 'Ve vybraných tématech nemáte žádnou otázku s hvězdičkou. Otázku označíš tlačítkem ☆ v režimu Učení, Náhodně nebo Postupně.']
+        : ['Žádné chybné otázky', 'Ve vybraných tématech teď nemáte žádnou otázku naposledy zodpovězenou špatně. Pokračujte v režimu Náhodně.'];
+      stage.append(el('div', { class: 'card empty' }, el('b', { text: m[0] }), m[1]));
       return;
     }
     const q = cur.q, done = cur.picked != null;
@@ -480,6 +584,7 @@ footer a { color: var(--accent); }
     });
     const card = el('article', { class: 'card' }, meta(q), el('p', { class: 'qtext', text: q.t }), figs(q), list);
     const acts = el('div', { class: 'actions' });
+    acts.append(flagBtn(q));
     if (done) {
       const ok = cur.picked === q.c;
       acts.append(el('span', { class: 'verdict ' + (ok ? 'ok' : 'bad'), text: ok ? 'Dobře' : 'Špatně' }));
@@ -592,20 +697,40 @@ footer a { color: var(--accent); }
       seen += sn; att += sa; okc += so; wrongNow += sw;
       return { s, total: qs.length, sn, sa, so, sw, sg };
     });
-    pane.append(el('p', { style: 'margin:0;color:var(--muted);font-size:.92rem', text: 'Statistiky pro ' + VNAME[S.v] + '. Ukládají se jen v tomto prohlížeči, bez přihlašování.' }));
+    pane.append(el('p', { style: 'margin:0;color:var(--muted);font-size:.92rem', text: 'Statistiky pro ' + VNAME[S.v] + '. Na claude.ai se ukládají k tvému účtu (napříč zařízeními), jinak v tomto prohlížeči.' }));
     pane.append(el('div', { class: 'kpis' },
       el('div', { class: 'kpi' }, el('div', { class: 'v', text: pct(seen, all.length) + ' %' }), el('div', { class: 'l', text: 'prošlých otázek (' + seen + ' z ' + all.length + ')' })),
       el('div', { class: 'kpi' }, el('div', { class: 'v', text: att ? pct(okc, att) + ' %' : '–' }), el('div', { class: 'l', text: 'úspěšnost odpovědí (' + okc + ' z ' + att + ')' })),
       el('div', { class: 'kpi' }, el('div', { class: 'v', text: String(wrongNow) }), el('div', { class: 'l', text: 'otázek naposledy špatně' }))));
+    const readyOf = r => r.sn && r.sa && (r.so / r.sa) >= PASS && (r.sn / r.total) >= 0.5;
+    const readyCnt = rows.filter(readyOf).length;
+    pane.append(el('p', { style: 'margin:0;color:var(--muted);font-size:.88rem' },
+      '🎯 Odhad připravenosti: ', el('b', { style: 'color:var(--ink)', text: readyCnt + ' z ' + subjects.length }),
+      ' předmětů nad 75 % (z aspoň poloviny otázek). Orientační – nenahrazuje zkoušku nanečisto.'));
     const list = el('div', { class: 'subjstats' });
     for (const r of rows) {
+      const succ = r.sa ? r.so / r.sa : 0, cov = r.total ? r.sn / r.total : 0;
+      let pill = null;
+      if (r.sn) {
+        if (cov >= 0.5 && succ >= PASS) pill = el('span', { class: 'pill ok', text: 'Připraven' });
+        else if (succ >= 0.6) pill = el('span', { class: 'pill warn', text: 'Skoro' });
+        else pill = el('span', { class: 'pill bad', text: 'Zatím ne' });
+      }
       list.append(el('div', { class: 'ss' }, el('code', { text: code(r.s.id) }),
-        el('div', { class: 'nm' }, el('div', { text: sname(r.s) }), el('div', { class: 'bar', title: 'zeleně naposledy správně, červeně naposledy špatně' },
-          el('i', { class: 'g', style: 'width:' + (100 * r.sg / r.total) + '%' }), el('i', { class: 'r', style: 'width:' + (100 * r.sw / r.total) + '%' }))),
+        el('div', { class: 'nm' },
+          el('div', { style: 'display:flex;align-items:center;gap:8px;flex-wrap:wrap' }, el('span', { text: sname(r.s) }), pill),
+          el('div', { class: 'bar', title: 'zeleně naposledy správně, červeně naposledy špatně' },
+            el('i', { class: 'g', style: 'width:' + (100 * r.sg / r.total) + '%' }), el('i', { class: 'r', style: 'width:' + (100 * r.sw / r.total) + '%' }))),
         el('div', { class: 'num' }, el('b', { text: r.sn + '' }), ' / ' + r.total),
         el('div', { class: 'num hide-s' }, el('b', { text: r.sa ? pct(r.so, r.sa) + ' %' : '–' }))));
     }
     pane.append(el('div', { class: 'card' }, el('div', { class: 'legend' }, el('span', {}, el('i', { style: 'background:var(--ok)' }), 'naposledy správně'), el('span', {}, el('i', { style: 'background:var(--bad)' }), 'naposledy špatně'), el('span', { text: 'čísla: prošlé otázky · úspěšnost' })), list));
+    const remStatus = el('span', { style: 'font-size:.82rem;color:var(--muted);flex-basis:100%' });
+    pane.append(el('div', { class: 'card' }, el('div', { class: 'remind' },
+      el('div', { class: 't', style: 'flex:1' }, el('b', { text: '🔔 Denní připomínka' }),
+        el('p', { text: 'Každý den malé pošťouchnutí, ať nezapomeneš procvičovat. Nejlíp funguje po přidání appky na plochu; na claude.ai spolehlivé denní doručení není.' })),
+      el('button', { type: 'button', class: 'btn primary', style: 'margin-left:auto', onclick: () => enableReminders(remStatus), text: (S.reminders ? 'Znovu zapnout' : 'Zapnout připomínky') }),
+      remStatus)));
     pane.append(resetAsk
       ? el('div', { class: 'confirm' }, el('span', { text: 'Smazat všechny statistiky pro letoun, vrtulník i kluzák? Nejde to vrátit.' }), el('span', { style: 'flex:1' }),
           el('button', { type: 'button', class: 'btn', onclick: () => { resetAsk = false; renderStats(); }, text: 'Ponechat' }),
@@ -644,7 +769,7 @@ footer a { color: var(--accent); }
     else if (e.key === 'Enter' && cur.picked != null && !e.target.matches('button:not(#next)')) { e.preventDefault(); nextQ(); }
   });
 
-  syncTop(); render(); cloudInit();
+  applyTheme(); updateStreakUI(); syncTop(); render(); cloudInit();
   // při skrytí/zavření stránky (hlavně mobil v pozadí) ulož rozdělaný postup do účtu hned
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloudFlush(); });
   window.addEventListener('pagehide', cloudFlush);
