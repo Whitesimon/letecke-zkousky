@@ -38,8 +38,11 @@ Appka má `manifest.json` + `sw.js` (service worker), takže jde přidat na ploc
 - **označené otázky (hvězdičky)** + režim „Označené" pro cílené opakování
 - simulace zkoušky na čas
 - výběr témat, míchání odpovědí
-- **denní série 🔥** (motivace k pravidelnému studiu)
+- **denní série 🔥** + **denní cíl 🎯** (nastavitelný počet otázek/den, počítadlo pokroku)
+- **historie zkoušek nanečisto** s trendem (poslední / nejlepší / zlepšení)
 - **odhad připravenosti** ve statistikách (pravidlo 75 % na předmět)
+- klávesa **F** = označit otázku; **A–D / 1–4** = odpověď; **←/→** = navigace
+- **„Přidat na plochu"** (nativní instalační nabídka, když je dostupná)
 - **přepínač motivu** (světlý / tmavý / auto)
 - **denní připomínky** (oznámení; nejlíp po přidání na plochu – viz [DEPLOY.md](DEPLOY.md))
 - statistiky k Claude účtu (napříč zařízeními), jinak lokálně v prohlížeči
