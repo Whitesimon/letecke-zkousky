@@ -460,28 +460,51 @@ footer a { color: var(--accent); }
   }
 
   // ---------- denní připomínky (oznámení) ----------
+  function urlB64ToU8(s) {                              // VAPID klíč (base64url) -> Uint8Array
+    const pad = '='.repeat((4 - s.length % 4) % 4);
+    const b64 = (s + pad).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(b64), arr = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  }
+  const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
   async function enableReminders(statusEl) {
     const say = (txt, ok) => { if (statusEl) { statusEl.textContent = txt; statusEl.style.color = ok ? 'var(--ok)' : 'var(--muted)'; } };
     if (!('Notification' in window)) { say('Tento prohlížeč oznámení nepodporuje.'); return; }
+    if (isIOS() && !isStandalone()) { say('Na iPhonu nejdřív appku „Přidat na plochu" (tlačítko Sdílet → Na plochu) a otevři ji odtud – pak zapni připomínky.'); return; }
     let perm = Notification.permission;
     if (perm === 'default') { try { perm = await Notification.requestPermission(); } catch { perm = 'denied'; } }
     if (perm !== 'granted') { say('Oznámení nejsou povolená. Povol je v nastavení prohlížeče.'); return; }
     S.reminders = true; saveS();
     let reg = null;
     try { reg = await navigator.serviceWorker.ready; } catch {}
-    // nejspolehlivější bez serveru: periodická synchronizace (Chrome/Android)
+    const vapid = window.SKYCFG && window.SKYCFG.vapidPublicKey;
+    let pushDone = false;
+    // 1) server push (funguje i na iPhonu v appce na ploše) – potřebuje Supabase účet + VAPID
+    if (reg && vapid && SB.enabled) {
+      if (!SB.user) { say('Pro denní připomínky se nejdřív přihlas (karta Synchronizace výše).'); return; }
+      try {
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToU8(vapid) });
+        await SB.client.from('push_subs').upsert({ endpoint: sub.endpoint, user_id: SB.user.id, sub: sub.toJSON() }, { onConflict: 'endpoint' });
+        pushDone = true;
+      } catch (e) { say('Push se nepodařilo zapnout: ' + (e.message || e)); }
+    }
+    // 2) periodická synchronizace (Android, bez serveru) – jen když push neběží
     try {
-      if (reg && 'periodicSync' in reg) {
+      if (reg && !pushDone && 'periodicSync' in reg) {
         const st = await navigator.permissions.query({ name: 'periodic-background-sync' });
         if (st.state === 'granted') await reg.periodicSync.register('daily-reminder', { minInterval: 24 * 60 * 60 * 1000 });
       }
     } catch {}
-    // hned ukázat, že to funguje
+    // 3) potvrzovací oznámení
     try {
       if (reg) await reg.showNotification('Letecké zkoušky', { body: 'Připomínky zapnuty ✈️ Uvidíme se u otázek!', icon: 'icon-192.png', badge: 'icon-192.png' });
       else new Notification('Letecké zkoušky', { body: 'Připomínky zapnuty ✈️', icon: 'icon-192.png' });
-      say('Hotovo – připomínky zapnuty. ✓', true);
-    } catch { say('Oznámení povolena, ale spolehlivé denní doručení funguje až na vlastní adrese (ne na claude.ai).', true); }
+    } catch {}
+    if (pushDone) say('Hotovo – denní připomínky na účet. ✓', true);
+    else if (!statusEl.textContent) say('Oznámení povolena. Pro spolehlivé denní doručení (hlavně iPhone) nastav server push – viz BACKEND.md.', true);
   }
 
   // ---------- cloud sync: postup uložený k Claude účtu, napříč zařízeními ----------
@@ -1008,7 +1031,7 @@ footer a { color: var(--accent); }
   document.addEventListener('keydown', e => {
     if (!$('#search').hidden) { if (e.key === 'Escape') closeSearch(); return; }
     if (S.tab !== 'ucit' || e.ctrlKey || e.metaKey || e.altKey || !lb.hidden) { if (e.key === 'Escape') lb.hidden = true; return; }
-    if (e.target.matches('input, textarea, select')) return;
+    if (e.target.matches && e.target.matches('input, textarea, select')) return;
     const k = e.key.toUpperCase();
     let pos = '1234'.indexOf(k); if (pos < 0) pos = 'ABCD'.indexOf(k);
     if (S.mode === 'learn') {

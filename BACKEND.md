@@ -52,13 +52,62 @@ Na webu otevři **Moje statistiky** → karta **Synchronizace napříč zaříze
 
 ---
 
-## (Pokročilé, volitelné) Denní push oznámení i při zavřené appce
-Tlačítko „Zapnout připomínky" dnes používá `periodicSync` (Chrome/Android, best-effort). Spolehlivé denní doručení i na iOS a při zavřené appce vyžaduje **server, který push pošle**:
+## 6. Denní push oznámení (i na iPhonu, i při zavřené appce)
+Klient i service worker i edge funkce jsou **už hotové** – stačí projít nastavení. Na iPhonu push funguje jen když je appka **přidaná na plochu** (iOS 16.4+) a otevřená odtud.
 
-1. **VAPID klíče:** `npx web-push generate-vapid-keys`.
-2. **Tabulka odběrů:** ulož `PushSubscription` každého zařízení (user_id, endpoint, keys) do tabulky `push_subs` s RLS jako výše.
-3. **Klient:** po povolení oznámení zavolat `registration.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: <VAPID public> })` a odběr uložit do `push_subs`. (service worker už `push` událost zpracovává – viz `sw.js`.)
-4. **Edge Function** (Supabase → Functions) s knihovnou `web-push`, která projde `push_subs` a pošle oznámení; VAPID private drž jako secret funkce.
-5. **Plán:** spouštěj funkci jednou denně přes **Supabase → Database → Cron** (pg_cron) nebo externí cron.
+### 6a. Tabulka odběrů
+V **SQL Editoru** spusť:
+```sql
+create table if not exists public.push_subs (
+  endpoint   text primary key,
+  user_id    uuid references auth.users(id) on delete cascade,
+  sub        jsonb not null,
+  created_at timestamptz default now()
+);
+alter table public.push_subs enable row level security;
+create policy "insert own" on public.push_subs for insert with check (auth.uid() = user_id);
+create policy "update own" on public.push_subs for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "delete own" on public.push_subs for delete using (auth.uid() = user_id);
+```
 
-Tohle je nejnáročnější část; až na ni dojde, napiš a dodělám edge funkci i klientský odběr.
+### 6b. VAPID klíče
+Na počítači spusť:
+```bash
+npx web-push generate-vapid-keys
+```
+Dostaneš **Public** a **Private** klíč. Public vlož do `config.js` → `vapidPublicKey`. Private si nech pro krok 6d (nikdy ne do gitu!).
+
+### 6c. Nasazení edge funkce
+Potřebuješ [Supabase CLI](https://supabase.com/docs/guides/cli). V kořeni projektu:
+```bash
+supabase login
+supabase link --project-ref <REF z URL projektu>
+supabase functions deploy daily-reminder
+```
+(Soubor funkce je přiložený v `supabase/functions/daily-reminder/index.ts`.)
+
+### 6d. Secrets funkce
+```bash
+supabase secrets set VAPID_PUBLIC_KEY="<public>" VAPID_PRIVATE_KEY="<private>" VAPID_SUBJECT="mailto:tvuj@email.cz"
+```
+
+### 6e. Denní plán (cron)
+V **SQL Editoru** zapni rozšíření a naplánuj (čas je UTC – `0 16 * * *` ≈ 18:00 v ČR):
+```sql
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+select cron.schedule('daily-reminder', '0 16 * * *', $$
+  select net.http_post(
+    url     := 'https://<REF>.functions.supabase.co/daily-reminder',
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer <SUPABASE_ANON_KEY>',
+      'Content-Type', 'application/json'
+    )
+  );
+$$);
+```
+> Ruční test: `curl -X POST https://<REF>.functions.supabase.co/daily-reminder -H "Authorization: Bearer <ANON_KEY>"`.
+
+### 6f. Zapnutí na zařízení
+Nasaď web, otevři ho (na iPhonu z plochy!), přihlas se, ve „Statistikách" → **Zapnout připomínky**. Appka si uloží odběr a edge funkce ti bude každý den posílat oznámení.
