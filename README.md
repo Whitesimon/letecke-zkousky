@@ -42,6 +42,10 @@ Appka má `manifest.json` + `sw.js` (service worker), takže jde přidat na ploc
 - **historie zkoušek nanečisto** s trendem (poslední / nejlepší / zlepšení)
 - **odhad připravenosti** ve statistikách (pravidlo 75 % na předmět)
 - klávesa **F** = označit otázku; **A–D / 1–4** = odpověď; **←/→** = navigace
+- **vyhledávání otázek** (podle čísla nebo textu) 🔎
+- **vlastní poznámky** k otázkám (ukládají se k účtu) 📝
+- **barevné tečky zvládnutí** u témat (zelená/žlutá/červená podle úspěšnosti)
+- **swipe gesta** na mobilu (další/předchozí otázka)
 - **„Přidat na plochu"** (nativní instalační nabídka, když je dostupná)
 - **přepínač motivu** (světlý / tmavý / auto)
 - **denní připomínky** (oznámení; nejlíp po přidání na plochu – viz [DEPLOY.md](DEPLOY.md))

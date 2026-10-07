@@ -191,6 +191,24 @@ footer a { color: var(--accent); }
 .remind .t { min-width: 0; }
 .remind .t b { font: 700 1.1rem/1.1 var(--f-display); }
 .remind .t p { margin: 2px 0 0; color: var(--muted); font-size: .85rem; }
+/* zvládnutí témat (tečka na chipu) */
+.mdot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: 0 0 auto; }
+/* poznámky k otázce */
+.notewrap { border-top: 1px dashed var(--line); padding-top: 10px; }
+.notewrap summary { cursor: pointer; color: var(--muted); font-size: .88rem; font-weight: 600; list-style: none; }
+.notewrap summary::-webkit-details-marker { display: none; }
+.note-ta { width: 100%; margin-top: 8px; font: inherit; font-size: .95rem; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); resize: vertical; }
+/* vyhledávání */
+.search { position: fixed; inset: 0; background: rgba(8,14,22,.55); z-index: 9; display: flex; justify-content: center; align-items: flex-start; padding: calc(16px + env(safe-area-inset-top,0px)) 14px 14px; }
+.search-panel { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; width: 100%; max-width: 780px; max-height: 90vh; overflow: auto; box-shadow: var(--shadow); padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.search-bar { display: flex; gap: 8px; align-items: center; position: sticky; top: -14px; background: var(--bg); padding-top: 2px; }
+.search-bar input { flex: 1; font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink); }
+.sresults { display: flex; flex-direction: column; }
+.sresult { text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; padding: 9px 4px; display: flex; gap: 10px; align-items: baseline; }
+.sresult:hover { background: var(--sel); }
+.sresult code { font: 500 .7rem/1 var(--f-mono); color: var(--mag); flex: 0 0 auto; }
+.sresult .sn { color: var(--muted); font-size: .8rem; flex: 0 0 auto; }
+.sresult .st { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 620px) {
   .modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -216,6 +234,7 @@ footer a { color: var(--accent); }
         <button type="button" id="v-H" data-v="H">Vrtulník</button>
         <button type="button" id="v-S" data-v="S">Kluzák SPL</button>
       </div>
+      <button type="button" class="iconbtn" id="search-btn" aria-label="Hledat otázku" title="Hledat otázku (číslo nebo text)"><span>🔎</span><span>Hledat</span></button>
       <button type="button" class="iconbtn" id="theme-btn" aria-label="Přepnout motiv" title="Světlý / tmavý / automatický motiv"></button>
     </div>
   </header>
@@ -260,6 +279,16 @@ footer a { color: var(--accent); }
 </div>
 
 <div class="lightbox" id="lightbox" hidden><button type="button" class="x" id="lb-x">Zavřít</button><img id="lb-img" alt=""></div>
+
+<div class="search" id="search" hidden>
+  <div class="search-panel">
+    <div class="search-bar">
+      <input type="search" id="search-input" placeholder="Číslo otázky nebo část textu…" autocomplete="off">
+      <button type="button" class="btn" id="search-x">Zavřít</button>
+    </div>
+    <div id="search-body"></div>
+  </div>
+</div>
 
 <script>
 (() => {
@@ -307,6 +336,7 @@ footer a { color: var(--accent); }
   let streak = store.get('streak', { last: null, count: 0 });
   let daily = store.get('daily', { d: null, n: 0 });  // dnešní počet zodpovězených
   let exams = store.get('exams', {});                 // 'A'/'H'/'S' -> [{t,p,pass}]
+  let notes = store.get('notes', {});                 // key(q) -> text poznámky
   let deferredPrompt = null;                          // pro "Přidat na plochu"
 
   // ---------- hvězdičky (označené otázky) ----------
@@ -355,6 +385,62 @@ footer a { color: var(--accent); }
     try { await deferredPrompt.userChoice; } catch {}
     deferredPrompt = null; if (S.tab === 'stat') renderStats();
   }
+
+  // ---------- zvládnutí témat (barevná tečka na chipu) ----------
+  function subjMastery(sid) {
+    if (!DATA) return null;
+    let a = 0, o = 0;
+    for (const q of DATA.q[S.v].filter(q => q.s === sid)) { const r = stats[key(q)]; if (r) { a += r[0]; o += r[1]; } }
+    return a ? o / a : null;                           // null = nezačato
+  }
+  function updateChipMastery() {
+    for (const b of document.querySelectorAll('.chip')) {
+      const dot = b.querySelector('.mdot'); if (!dot) continue;
+      const m = subjMastery(+b.dataset.s);
+      dot.style.background = m == null ? 'var(--line)' : m >= 0.75 ? 'var(--ok)' : m >= 0.5 ? '#d99706' : 'var(--bad)';
+      dot.title = m == null ? 'zatím nezačato' : Math.round(m * 100) + ' % úspěšnost';
+    }
+  }
+
+  // ---------- poznámky k otázce ----------
+  function noteBox(q) {
+    const k = key(q), val = notes[k] || '';
+    const ta = el('textarea', { class: 'note-ta', rows: 2, placeholder: 'Tvoje poznámka k otázce…',
+      oninput: e => { const v = e.target.value; if (v) notes[k] = v; else delete notes[k]; store.set('notes', notes); } });
+    ta.value = val;
+    const d = el('details', { class: 'notewrap' }, el('summary', { text: '📝 Poznámka' + (val ? ' •' : '') }), ta);
+    if (val) d.open = true;
+    return d;
+  }
+
+  // ---------- vyhledávání otázek ----------
+  function searchRun(term) {
+    const box = $('#search-body'); box.textContent = '';
+    term = (term || '').trim().toLowerCase();
+    if (term.length < 2) { box.append(el('p', { class: 'hint', text: 'Napiš aspoň 2 znaky – číslo otázky nebo část textu.' })); return; }
+    if (!DATA) { box.append(el('p', { class: 'hint', text: 'Otázky se ještě načítají…' })); return; }
+    const num = /^\d+$/.test(term) ? +term : null;
+    const res = DATA.q[S.v].filter(q => num != null
+      ? q.n === num
+      : (q.t.toLowerCase().includes(term) || q.a.some(a => a.toLowerCase().includes(term)))).slice(0, 50);
+    if (!res.length) { box.append(el('p', { class: 'hint', text: 'Nic nenalezeno.' })); return; }
+    box.append(el('p', { class: 'hint', text: res.length + (res.length >= 50 ? '+ ' : ' ') + 'výsledků – klepni na otázku' }));
+    const list = el('div', { class: 'sresults' });
+    res.forEach(q => list.append(el('button', { type: 'button', class: 'sresult', onclick: () => searchShow(q) },
+      el('code', { text: code(q.s) }), el('span', { class: 'sn', text: 'č. ' + q.n }), el('span', { class: 'st', text: q.t }))));
+    box.append(list);
+  }
+  function searchShow(q) {
+    const box = $('#search-body'); box.textContent = '';
+    box.append(el('button', { type: 'button', class: 'btn', onclick: () => searchRun($('#search-input').value), text: '← Zpět na výsledky' }));
+    const list = el('ol', { class: 'answers' });
+    q.a.forEach((a, ai) => list.append(el('li', {}, el('div', { class: 'ans' + (ai === q.c ? ' ok' : '') },
+      el('span', { class: 'k', text: LETTERS[ai] }), el('span', { text: a }), el('span', { class: 'mark', text: ai === q.c ? 'Správně' : '' })))));
+    box.append(el('article', { class: 'card' }, meta(q), el('p', { class: 'qtext', text: q.t }), figs(q), list,
+      explainBox(q), q.p ? el('p', { class: 'note', text: 'Poznámka: ' + q.p }) : null, flagBtn(q), noteBox(q)));
+  }
+  function openSearch() { $('#search').hidden = false; const i = $('#search-input'); searchRun(i.value); i.focus(); }
+  function closeSearch() { $('#search').hidden = true; }
 
   // ---------- motiv (světlý / tmavý / auto) ----------
   function applyTheme() {
@@ -428,9 +514,9 @@ footer a { color: var(--accent); }
     if (!uid) return;
     CLOUD.col = db.collection('data/users/' + uid);
     let snaps;
-    try { snaps = await Promise.all(['settings', 'stats', 'seq', 'learn', 'flags', 'streak', 'daily', 'exams'].map(k => CLOUD.col.doc(k).get().catch(() => null))); }
+    try { snaps = await Promise.all(['settings', 'stats', 'seq', 'learn', 'flags', 'streak', 'daily', 'exams', 'notes'].map(k => CLOUD.col.doc(k).get().catch(() => null))); }
     catch { return; }
-    const [rSet, rStats, rSeq, rLearn, rFlags, rStreak, rDaily, rExams] = snaps.map(s => (s && s.exists) ? ((s.data() || {}).d || null) : null);
+    const [rSet, rStats, rSeq, rLearn, rFlags, rStreak, rDaily, rExams, rNotes] = snaps.map(s => (s && s.exists) ? ((s.data() || {}).d || null) : null);
     // sloučení: statistiky po klíčích (víc pokusů vyhrává), nastavení a pozice: účet má přednost
     if (rStats) for (const k in rStats) { const r = rStats[k], l = stats[k]; if (!l || (r[0] || 0) > (l[0] || 0)) stats[k] = r; }
     if (rSet) Object.assign(S, rSet);
@@ -445,9 +531,10 @@ footer a { color: var(--accent); }
       for (const e of (rExams[v] || [])) { const id = e.t + '|' + e.p + '|' + e.pass; if (!seen.has(id)) { seen.add(id); exams[v].push(e); } }
       exams[v].sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0); if (exams[v].length > 30) exams[v] = exams[v].slice(-30);
     }
+    if (rNotes) Object.assign(notes, rNotes);           // poznámky: sjednocení
     // ulož sloučený stav zpět (lokálně i do účtu) a překresli
     store.set('stats', stats); store.set('settings', S); store.set('seq', seqPos); store.set('learn', learnPos);
-    store.set('flags', flags); store.set('streak', streak); store.set('daily', daily); store.set('exams', exams);
+    store.set('flags', flags); store.set('streak', streak); store.set('daily', daily); store.set('exams', exams); store.set('notes', notes);
     if (DATA) { S.subj = S.subj.filter(id => subjects.some(s => s.id === id)); buildChips(); }
     applyTheme(); updateStreakUI(); syncTop(); render();
   }
@@ -475,8 +562,9 @@ footer a { color: var(--accent); }
       box.append(el('button', { type: 'button', class: 'chip', 'data-s': s.id, title: n + ' otázek', onclick: () => {
         S.subj = S.subj.includes(s.id) ? S.subj.filter(x => x !== s.id) : [...S.subj, s.id].sort((a, b) => a - b);
         changed();
-      } }, el('code', { text: code(s.id) }), sname(s)));
+      } }, el('span', { class: 'mdot' }), el('code', { text: code(s.id) }), sname(s)));
     }
+    updateChipMastery();
   }
   function changed() { saveS(); cur = null; recent = []; if (exam && !exam.done) exam = null; syncTop(); render(); }
 
@@ -487,6 +575,23 @@ footer a { color: var(--accent); }
   $('#no-subj').addEventListener('click', () => { S.subj = []; changed(); });
   $('#opt-shuffle').addEventListener('change', e => { S.shuffle = e.target.checked; saveS(); });
   $('#theme-btn').addEventListener('click', cycleTheme);
+  $('#search-btn').addEventListener('click', openSearch);
+  $('#search-x').addEventListener('click', closeSearch);
+  $('#search-input').addEventListener('input', e => searchRun(e.target.value));
+  $('#search').addEventListener('click', e => { if (e.target === $('#search')) closeSearch(); });
+  // swipe gesta (mobil): doleva = další, doprava = předchozí
+  (() => {
+    const st = $('#stage'); let x0 = 0, y0 = 0, t0 = 0;
+    st.addEventListener('touchstart', e => { const t = e.changedTouches[0]; x0 = t.clientX; y0 = t.clientY; t0 = Date.now(); }, { passive: true });
+    st.addEventListener('touchend', e => {
+      const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+      if (Date.now() - t0 > 600 || Math.abs(dx) < 55 || Math.abs(dy) > 45) return;
+      const next = dx < 0;
+      if (S.mode === 'learn' && learnGo) learnGo(next ? 1 : -1);
+      else if (S.mode === 'exam' && exam && !exam.done) { if (next && exam.i < exam.qs.length - 1) { exam.i++; render(); } else if (!next && exam.i > 0) { exam.i--; render(); } }
+      else if (S.mode !== 'exam' && cur && cur.picked != null && next) nextQ();
+    }, { passive: true });
+  })();
 
   // ---------- obrázky ----------
   const lb = $('#lightbox');
@@ -577,7 +682,7 @@ footer a { color: var(--accent); }
     q.a.forEach((a, ai) => list.append(el('li', {}, el('div', { class: 'ans' + (ai === q.c ? ' ok' : '') },
       el('span', { class: 'k', text: LETTERS[ai] }), el('span', { text: a }), el('span', { class: 'mark', text: ai === q.c ? 'Správně' : '' })))));
     const card = el('article', { class: 'card' }, meta(q), el('p', { class: 'qtext', text: q.t }), figs(q), list, explainBox(q),
-      q.p ? el('p', { class: 'note', text: 'Poznámka: ' + q.p }) : null,
+      q.p ? el('p', { class: 'note', text: 'Poznámka: ' + q.p }) : null, noteBox(q),
       el('div', { class: 'actions' }, flagBtn(q), el('button', { type: 'button', class: 'btn', onclick: () => go(-1), text: '← Předchozí' }), el('span', { class: 'sp' }),
         el('span', { class: 'keys' }, el('kbd', { text: '←' }), ' ', el('kbd', { text: '→' })),
         el('button', { type: 'button', class: 'btn primary', id: 'next', onclick: () => go(1), text: 'Další →' })));
@@ -618,6 +723,7 @@ footer a { color: var(--accent); }
       acts.append(el('span', { class: 'verdict ' + (ok ? 'ok' : 'bad'), text: ok ? 'Dobře' : 'Špatně' }));
       const ex = explainBox(q); if (ex) card.append(ex);
       if (q.p) card.append(el('p', { class: 'note', text: 'Poznámka: ' + q.p }));
+      card.append(noteBox(q));
     } else if (S.mode === 'seq') {
       acts.append(el('button', { type: 'button', class: 'btn', onclick: () => seqJump(-1), text: '← Předchozí' }));
     }
@@ -809,6 +915,7 @@ footer a { color: var(--accent); }
   }
 
   function render() {
+    updateChipMastery();
     if (S.tab === 'stat') { renderStats(); return; }
     const stage = $('#stage'); stage.textContent = '';
     stage.className = 'panel';
@@ -818,6 +925,7 @@ footer a { color: var(--accent); }
 
   // ---------- klávesnice ----------
   document.addEventListener('keydown', e => {
+    if (!$('#search').hidden) { if (e.key === 'Escape') closeSearch(); return; }
     if (S.tab !== 'ucit' || e.ctrlKey || e.metaKey || e.altKey || !lb.hidden) { if (e.key === 'Escape') lb.hidden = true; return; }
     if (e.target.matches('input, textarea, select')) return;
     const k = e.key.toUpperCase();
