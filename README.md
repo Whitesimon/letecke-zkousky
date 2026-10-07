@@ -28,6 +28,9 @@ npx serve .
 
 Pak otevři <http://localhost:8000>.
 
+## PWA / nasazení
+Appka má `manifest.json` + `sw.js` (service worker), takže jde přidat na plochu mobilu a běžet offline — viz [DEPLOY.md](DEPLOY.md). Na claude.ai Artifactu PWA neběží (sandbox), zato tam funguje ukládání postupu k účtu.
+
 ## Funkce
 - učební režim s okamžitým správným řešením a vysvětlením
 - náhodné / sekvenční pořadí otázek, sledování postupu
