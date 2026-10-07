@@ -1082,9 +1082,27 @@ footer a { color: var(--accent); }
   // při skrytí/zavření stránky (hlavně mobil v pozadí) ulož rozdělaný postup do účtu hned
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloudFlush(); });
   window.addEventListener('pagehide', cloudFlush);
-  // PWA: service worker (offline + appka na plochu). Tiše selže tam, kde není povolený.
+  // PWA: service worker + automatická aktualizace (appku na plochu stačí dát jednou).
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+    const wasControlled = !!navigator.serviceWorker.controller;
+    let refreshing = false;
+    // když se aktivuje nová verze, tiše přenačti (ne při úplně první instalaci)
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!wasControlled || refreshing) return;
+      refreshing = true; location.reload();
+    });
+    window.addEventListener('load', async () => {
+      try {
+        const reg = await navigator.serviceWorker.register('sw.js');
+        reg.update && reg.update();                                  // zkontroluj aktualizaci při startu
+        setInterval(() => reg.update && reg.update(), 60 * 60 * 1000); // a každou hodinu
+      } catch {}
+    });
+    // při návratu do appky (odemknutí / přepnutí zpět) zkontroluj aktualizaci
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState !== 'visible') return;
+      try { const reg = await navigator.serviceWorker.getRegistration(); reg && reg.update && reg.update(); } catch {}
+    });
   }
   // nabídka instalace na plochu (Chrome/Android) – zpřístupní tlačítko ve statistikách
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; if (S.tab === 'stat') renderStats(); });
