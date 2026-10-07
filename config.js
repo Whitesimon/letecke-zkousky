@@ -5,7 +5,7 @@
 // Pro zapnutí vyplň hodnoty ze svého Supabase projektu – návod v BACKEND.md.
 // Pozn.: "anon" i "vapidPublicKey" jsou určené k veřejnému použití (data chrání RLS), commit do gitu je OK.
 window.SKYCFG = {
-  supabaseUrl: '',       // např. https://abcdefgh.supabase.co
-  supabaseAnonKey: '',   // veřejný "anon public" klíč
+  supabaseUrl: 'https://blkcngavyxxnlcimufxu.supabase.co',
+  supabaseAnonKey: 'sb_publishable_TND98SpeFq3gepx5Eg3lgw_sTd4Jfk2',
   vapidPublicKey: ''     // veřejný VAPID klíč pro push oznámení (volitelné; návod v BACKEND.md)
 };
