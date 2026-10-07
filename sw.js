@@ -1,6 +1,6 @@
 /* Service worker: offline běh + příprava na denní oznámení.
    Verzi zvedni (v1 -> v2 ...) při změně těchto pravidel, aby se stará cache smazala. */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'letecke-zkousky-' + VERSION;
 
 // App shell + velká neměnná data. Obrázky se dokešují až za běhu (podle potřeby).
@@ -33,16 +33,17 @@ self.addEventListener('fetch', e => {
   try { url = new URL(req.url); } catch { return; }
   if (url.origin !== location.origin) return;                  // cizí origin (fonty) -> necháme na síti
 
-  const isIndex = req.mode === 'navigate' || url.pathname.endsWith('/') || url.pathname.endsWith('index.html');
+  // index.html i config.js vždy ze sítě (ať se změny projeví hned), offline fallback z cache
+  const isIndex = req.mode === 'navigate' || url.pathname.endsWith('/') || url.pathname.endsWith('index.html') || url.pathname.endsWith('config.js');
 
   if (isIndex) {
-    // index.html: nejdřív síť (ať jsou novinky), offline fallback z cache
+    // nejdřív síť (ať jsou novinky), offline fallback z cache
     e.respondWith((async () => {
       try {
         const r = await fetch(req);
-        if (r && r.ok) { const c = await caches.open(CACHE); c.put('./index.html', r.clone()); }
+        if (r && r.ok) { const c = await caches.open(CACHE); c.put(req, r.clone()); }
         return r;
-      } catch { return (await caches.match('./index.html')) || Response.error(); }
+      } catch { return (await caches.match(req)) || (await caches.match('./index.html')) || Response.error(); }
     })());
     return;
   }
