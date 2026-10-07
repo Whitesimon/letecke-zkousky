@@ -469,10 +469,24 @@ footer a { color: var(--accent); }
         el('button', { type: 'button', class: 'btn', style: 'margin-left:auto', onclick: async () => { await sbSignOut(); renderAccount(); }, text: 'Odhlásit' })));
     } else {
       const st = el('span', { style: 'font-size:.82rem;color:var(--muted);flex-basis:100%' });
-      const inp = el('input', { type: 'email', placeholder: 'tvuj@email.cz', autocomplete: 'email', style: 'flex:1;min-width:150px;font:inherit;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink)' });
-      acc.append(
-        el('p', { style: 'margin:0 0 2px;color:var(--muted);font-size:.9rem', text: 'Přihlas se e-mailem (pošleme ti odkaz) a měj svůj postup na mobilu, tabletu i počítači.' }),
-        el('div', { class: 'remind' }, inp, el('button', { type: 'button', class: 'btn primary', onclick: () => sbSignIn(inp.value.trim(), st), text: 'Poslat přihlašovací odkaz' }), st));
+      const inpStyle = 'flex:1;min-width:150px;font:inherit;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink)';
+      if (!otpEmail) {
+        const inp = el('input', { type: 'email', placeholder: 'tvuj@email.cz', autocomplete: 'email', style: inpStyle });
+        const send = async () => { const e = inp.value.trim(); if (await sbSendOtp(e, st)) { otpEmail = e; renderAccount(); } };
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+        acc.append(
+          el('p', { style: 'margin:0 0 2px;color:var(--muted);font-size:.9rem', text: 'Přihlas se e-mailem – pošleme ti 6místný kód, který sem opíšeš. Postup pak máš na mobilu, tabletu i počítači.' }),
+          el('div', { class: 'remind' }, inp, el('button', { type: 'button', class: 'btn primary', onclick: send, text: 'Poslat kód' }), st));
+      } else {
+        const code = el('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', placeholder: '6místný kód', style: inpStyle });
+        const verify = () => sbVerifyOtp(otpEmail, code.value, st);
+        code.addEventListener('keydown', e => { if (e.key === 'Enter') verify(); });
+        acc.append(
+          el('p', { style: 'margin:0 0 2px;color:var(--muted);font-size:.9rem' }, 'Poslali jsme kód na ', el('b', { text: otpEmail }), '. Opiš ho sem:'),
+          el('div', { class: 'remind' }, code,
+            el('button', { type: 'button', class: 'btn primary', onclick: verify, text: 'Přihlásit' }),
+            el('button', { type: 'button', class: 'btn', onclick: () => { otpEmail = null; renderAccount(); }, text: 'Zpět' }), st));
+      }
     }
     box.append(acc);
     // Vzhled
@@ -631,6 +645,7 @@ footer a { color: var(--accent); }
 
   // ---------- Supabase backend (účet + synchronizace MIMO claude.ai) ----------
   const SB = { client: null, user: null, enabled: false, timers: {}, pending: {} };
+  let otpEmail = null;                                  // rozpracované přihlášení kódem
   const sbCfg = () => (window.SKYCFG && window.SKYCFG.supabaseUrl && window.SKYCFG.supabaseAnonKey) ? window.SKYCFG : null;
   async function sbInit() {
     if (window.claude && window.claude.use) return;      // uvnitř claude.ai řeší sync Claude účet
@@ -641,7 +656,7 @@ footer a { color: var(--accent); }
       SB.client = mod.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
     } catch { SB.enabled = false; return; }
     try { const { data } = await SB.client.auth.getSession(); SB.user = data && data.session ? data.session.user : null; } catch {}
-    SB.client.auth.onAuthStateChange((_e, session) => { SB.user = session ? session.user : null; if (SB.user) sbSync(); if (S.tab === 'stat') renderStats(); if (!$('#account').hidden) renderAccount(); });
+    SB.client.auth.onAuthStateChange((_e, session) => { SB.user = session ? session.user : null; if (SB.user) { otpEmail = null; sbSync(); } if (S.tab === 'stat') renderStats(); if (!$('#account').hidden) renderAccount(); });
     if (SB.user) sbSync(); else if (S.tab === 'stat') renderStats();
   }
   async function sbSync() {
@@ -661,12 +676,25 @@ footer a { color: var(--accent); }
       try { await SB.client.from('progress').upsert({ user_id: SB.user.id, k, data: SB.pending[k], updated_at: new Date().toISOString() }, { onConflict: 'user_id,k' }); } catch {}
     }, 1200);
   }
-  async function sbSignIn(email, statusEl) {
-    if (!SB.client || !email) return;
-    statusEl.textContent = 'Posílám odkaz…';
-    try { const { error } = await SB.client.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href.split('#')[0] } });
-      statusEl.textContent = error ? ('Chyba: ' + error.message) : 'Hotovo – zkontroluj e-mail a klikni na přihlašovací odkaz.'; }
-    catch (e) { statusEl.textContent = 'Chyba: ' + e.message; }
+  async function sbSendOtp(email, statusEl) {         // pošle 6místný kód e-mailem
+    if (!SB.client || !email) { statusEl.textContent = 'Zadej e-mail.'; return false; }
+    statusEl.textContent = 'Posílám kód…';
+    try {
+      const { error } = await SB.client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+      if (error) { statusEl.textContent = 'Chyba: ' + error.message; return false; }
+      statusEl.textContent = 'Kód odeslán – mrkni do e-mailu.'; return true;
+    } catch (e) { statusEl.textContent = 'Chyba: ' + e.message; return false; }
+  }
+  async function sbVerifyOtp(email, code, statusEl) { // ověří kód = přihlášení v této appce
+    if (!SB.client) return;
+    code = (code || '').replace(/\s/g, '');
+    if (!code) { statusEl.textContent = 'Zadej kód z e-mailu.'; return; }
+    statusEl.textContent = 'Ověřuji…';
+    try {
+      const { error } = await SB.client.auth.verifyOtp({ email, token: code, type: 'email' });
+      if (error) { statusEl.textContent = 'Kód nesedí nebo vypršel. Zkus to znovu.'; return; }
+      otpEmail = null;                                 // úspěch – onAuthStateChange dořeší zbytek
+    } catch (e) { statusEl.textContent = 'Chyba: ' + e.message; }
   }
   async function sbSignOut() { try { await SB.client.auth.signOut(); } catch {} SB.user = null; if (S.tab === 'stat') renderStats(); }
 
