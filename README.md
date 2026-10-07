@@ -28,8 +28,10 @@ npx serve .
 
 Pak otevři <http://localhost:8000>.
 
-## PWA / nasazení
-Appka má `manifest.json` + `sw.js` (service worker), takže jde přidat na plochu mobilu a běžet offline — viz [DEPLOY.md](DEPLOY.md). Na claude.ai Artifactu PWA neběží (sandbox), zato tam funguje ukládání postupu k účtu.
+## PWA / nasazení / backend
+Appka má `manifest.json` + `sw.js` (service worker), takže jde přidat na plochu mobilu a běžet offline — viz [DEPLOY.md](DEPLOY.md) (nasazení na GitHub Pages je automatické přes `.github/workflows/deploy.yml`). Na claude.ai Artifactu PWA neběží (sandbox), zato tam funguje ukládání postupu k účtu.
+
+Synchronizace postupu mezi zařízeními funguje: na **claude.ai** přes Claude účet, na **vlastním hostingu** přes Supabase po vyplnění `config.js` — viz [BACKEND.md](BACKEND.md). Bez nastavení se ukládá jen lokálně v prohlížeči.
 
 ## Funkce
 - učební režim s okamžitým správným řešením a vysvětlením

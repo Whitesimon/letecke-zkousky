@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Letecké zkoušky">
 <script>try{var t=(JSON.parse(localStorage.getItem('ppl.settings'))||{}).theme;if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script src="config.js"></script>
 </head><body>
 <title>PPL/LAPL Otázky</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -312,7 +313,7 @@ footer a { color: var(--accent); }
   // ---------- úložiště (prohlížeč + cloud podle Claude účtu) ----------
   const store = {
     get(k, d) { try { const v = localStorage.getItem('ppl.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
-    set(k, v) { try { localStorage.setItem('ppl.' + k, JSON.stringify(v)); } catch {} cloudWrite(k, v); },
+    set(k, v) { try { localStorage.setItem('ppl.' + k, JSON.stringify(v)); } catch {} cloudWrite(k, v); sbWrite(k, v); },
   };
   const S = Object.assign({ v: 'A', mode: 'random', subj: [1,2,3,4,5,6,7,8,9], shuffle: true, tab: 'ucit', goal: 20 }, store.get('settings', {}));
   let stats = store.get('stats', {});      // "A:1:58" -> [pokusy, správně, poslední 1/0]
@@ -538,6 +539,65 @@ footer a { color: var(--accent); }
     if (DATA) { S.subj = S.subj.filter(id => subjects.some(s => s.id === id)); buildChips(); }
     applyTheme(); updateStreakUI(); syncTop(); render();
   }
+
+  // ---------- sjednocení jednoho klíče (sdílené pro claude i Supabase) ----------
+  const SKEYS = ['settings', 'stats', 'seq', 'learn', 'flags', 'streak', 'daily', 'exams', 'notes'];
+  const stateFor = k => ({ settings: S, stats, seq: seqPos, learn: learnPos, flags, streak, daily, exams, notes }[k]);
+  function applyRemote(k, rv) {
+    if (rv == null) return;
+    if (k === 'stats') { for (const kk in rv) { const r = rv[kk], l = stats[kk]; if (!l || (r[0] || 0) > (l[0] || 0)) stats[kk] = r; } }
+    else if (k === 'settings') Object.assign(S, rv);
+    else if (k === 'seq') Object.assign(seqPos, rv);
+    else if (k === 'learn') Object.assign(learnPos, rv);
+    else if (k === 'flags') Object.assign(flags, rv);
+    else if (k === 'notes') Object.assign(notes, rv);
+    else if (k === 'streak') { if (rv.last && (!streak.last || rv.last > streak.last || (rv.last === streak.last && (rv.count || 0) > (streak.count || 0)))) Object.assign(streak, rv); }
+    else if (k === 'daily') { if (rv.d === today() && (daily.d !== today() || (rv.n || 0) > daily.n)) daily = { d: today(), n: rv.n || 0 }; }
+    else if (k === 'exams') { for (const v in rv) { exams[v] = exams[v] || []; const seen = new Set(exams[v].map(e => e.t + '|' + e.p + '|' + e.pass)); for (const e of (rv[v] || [])) { const id = e.t + '|' + e.p + '|' + e.pass; if (!seen.has(id)) { seen.add(id); exams[v].push(e); } } exams[v].sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0); if (exams[v].length > 30) exams[v] = exams[v].slice(-30); } }
+  }
+  function persistAll() { for (const k of SKEYS) store.set(k, stateFor(k)); }
+  function redrawAfterSync() { if (DATA) { S.subj = S.subj.filter(id => subjects.some(s => s.id === id)); buildChips(); } applyTheme(); updateStreakUI(); syncTop(); render(); }
+
+  // ---------- Supabase backend (účet + synchronizace MIMO claude.ai) ----------
+  const SB = { client: null, user: null, enabled: false, timers: {}, pending: {} };
+  const sbCfg = () => (window.SKYCFG && window.SKYCFG.supabaseUrl && window.SKYCFG.supabaseAnonKey) ? window.SKYCFG : null;
+  async function sbInit() {
+    if (window.claude && window.claude.use) return;      // uvnitř claude.ai řeší sync Claude účet
+    const cfg = sbCfg(); if (!cfg) return;               // backend nenastaven -> jen localStorage
+    SB.enabled = true;
+    try {
+      const mod = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+      SB.client = mod.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+    } catch { SB.enabled = false; return; }
+    try { const { data } = await SB.client.auth.getSession(); SB.user = data && data.session ? data.session.user : null; } catch {}
+    SB.client.auth.onAuthStateChange((_e, session) => { SB.user = session ? session.user : null; if (SB.user) sbSync(); if (S.tab === 'stat') renderStats(); });
+    if (SB.user) sbSync(); else if (S.tab === 'stat') renderStats();
+  }
+  async function sbSync() {
+    if (!SB.client || !SB.user) return;
+    try {
+      const { data, error } = await SB.client.from('progress').select('k,data').eq('user_id', SB.user.id);
+      if (error) return;
+      for (const row of (data || [])) applyRemote(row.k, row.data);
+      persistAll();                                      // sloučený stav lokálně + zpět do Supabase (přes sbWrite)
+      redrawAfterSync();
+    } catch {}
+  }
+  function sbWrite(k, v) {
+    if (!SB.enabled || !SB.client || !SB.user) return;
+    SB.pending[k] = v; clearTimeout(SB.timers[k]);
+    SB.timers[k] = setTimeout(async () => {
+      try { await SB.client.from('progress').upsert({ user_id: SB.user.id, k, data: SB.pending[k], updated_at: new Date().toISOString() }, { onConflict: 'user_id,k' }); } catch {}
+    }, 1200);
+  }
+  async function sbSignIn(email, statusEl) {
+    if (!SB.client || !email) return;
+    statusEl.textContent = 'Posílám odkaz…';
+    try { const { error } = await SB.client.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href.split('#')[0] } });
+      statusEl.textContent = error ? ('Chyba: ' + error.message) : 'Hotovo – zkontroluj e-mail a klikni na přihlašovací odkaz.'; }
+    catch (e) { statusEl.textContent = 'Chyba: ' + e.message; }
+  }
+  async function sbSignOut() { try { await SB.client.auth.signOut(); } catch {} SB.user = null; if (S.tab === 'stat') renderStats(); }
 
   const pool = () => DATA ? DATA.q[S.v].filter(q => S.subj.includes(q.s)) : [];
   const subjName = s => { const x = subjects.find(x => x.id === s); return x ? sname(x) : ''; };
@@ -864,6 +924,27 @@ footer a { color: var(--accent); }
         el('div', { class: 'num hide-s' }, el('b', { text: r.sa ? pct(r.so, r.sa) + ' %' : '–' }))));
     }
     pane.append(el('div', { class: 'card' }, el('div', { class: 'legend' }, el('span', {}, el('i', { style: 'background:var(--ok)' }), 'naposledy správně'), el('span', {}, el('i', { style: 'background:var(--bad)' }), 'naposledy špatně'), el('span', { text: 'čísla: prošlé otázky · úspěšnost' })), list));
+    // účet a synchronizace (jen mimo claude.ai, když je nastaven Supabase)
+    if (SB.enabled) {
+      const acc = el('div', { class: 'card' }, el('div', { class: 'remind' }));
+      const row = acc.firstChild;
+      if (SB.user) {
+        row.append(el('div', { class: 't', style: 'flex:1' }, el('b', { text: '☁️ Účet' }),
+          el('p', { text: 'Přihlášen jako ' + ((SB.user.email) || 'uživatel') + '. Postup se ukládá k účtu napříč zařízeními.' })),
+          el('button', { type: 'button', class: 'btn', style: 'margin-left:auto', onclick: sbSignOut, text: 'Odhlásit' }));
+      } else {
+        const st = el('span', { style: 'font-size:.82rem;color:var(--muted);flex-basis:100%' });
+        const inp = el('input', { type: 'email', placeholder: 'tvuj@email.cz', autocomplete: 'email',
+          style: 'flex:1;min-width:160px;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)' });
+        row.append(el('div', { class: 't', style: 'flex-basis:100%' }, el('b', { text: '☁️ Synchronizace napříč zařízeními' }),
+          el('p', { text: 'Přihlas se e-mailem (pošleme odkaz) a tvůj postup se bude ukládat k účtu – mobil i počítač.' })),
+          inp,
+          el('button', { type: 'button', class: 'btn primary', onclick: () => sbSignIn(inp.value.trim(), st), text: 'Poslat přihlašovací odkaz' }),
+          st);
+      }
+      pane.append(acc);
+    }
+
     // denní cíl
     const dn = dnToday(), goal = S.goal || 20;
     const goalBar = el('div', { style: 'height:8px;background:var(--line);border-radius:4px;overflow:hidden' },
@@ -949,7 +1030,7 @@ footer a { color: var(--accent); }
     else if (e.key === 'Enter' && cur.picked != null && !e.target.matches('button:not(#next)')) { e.preventDefault(); nextQ(); }
   });
 
-  applyTheme(); updateStreakUI(); syncTop(); render(); cloudInit();
+  applyTheme(); updateStreakUI(); syncTop(); render(); cloudInit(); sbInit();
   // při skrytí/zavření stránky (hlavně mobil v pozadí) ulož rozdělaný postup do účtu hned
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloudFlush(); });
   window.addEventListener('pagehide', cloudFlush);
