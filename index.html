@@ -251,10 +251,10 @@ footer a { color: var(--accent); }
     return e;
   };
 
-  // ---------- úložiště (jen tento prohlížeč) ----------
+  // ---------- úložiště (prohlížeč + cloud podle Claude účtu) ----------
   const store = {
     get(k, d) { try { const v = localStorage.getItem('ppl.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
-    set(k, v) { try { localStorage.setItem('ppl.' + k, JSON.stringify(v)); } catch {} },
+    set(k, v) { try { localStorage.setItem('ppl.' + k, JSON.stringify(v)); } catch {} cloudWrite(k, v); },
   };
   const S = Object.assign({ v: 'A', mode: 'random', subj: [1,2,3,4,5,6,7,8,9], shuffle: true, tab: 'ucit' }, store.get('settings', {}));
   let stats = store.get('stats', {});      // "A:1:58" -> [pokusy, správně, poslední 1/0]
@@ -273,6 +273,46 @@ footer a { color: var(--accent); }
   let exam = null;
   let EXPL = null;         // vysvětlení: id -> {e, g}
   let learnPos = store.get('learn', {});
+
+  // ---------- cloud sync: postup uložený k Claude účtu, napříč zařízeními ----------
+  // Lokálně (bez Claude) nebo odhlášený => tiše jen localStorage. Funkce je hoistovaná,
+  // takže ji store.set výše může volat.
+  const CLOUD = { col: null };
+  const cloudTimers = {}, cloudPending = {};
+  function cloudWrite(k, v) {
+    if (!CLOUD.col) return;                       // cloud ještě/vůbec nedostupný
+    cloudPending[k] = v;
+    clearTimeout(cloudTimers[k]);
+    cloudTimers[k] = setTimeout(async () => {     // sloučí rychlé změny do jednoho zápisu
+      const val = cloudPending[k];
+      try { await CLOUD.col.doc(k).set({ d: val }); }
+      catch (e) { if (e && e.code === 'unavailable') { try { await CLOUD.col.doc(k).set({ d: val }); } catch {} } }
+    }, 1200);
+  }
+  async function cloudInit() {
+    const C = (typeof window !== 'undefined' && window.claude && window.claude.use) ? window.claude : null;
+    if (!C) return;                               // mimo Claude (lokální server) => jen prohlížeč
+    let db, user;
+    try { [db, user] = await Promise.all([C.use('db'), C.use('user')]); } catch { return; }
+    if (!db || !user) return;                     // odhlášený => jen prohlížeč
+    let uid = null;
+    try { uid = await user.id(); } catch {}
+    if (!uid) return;
+    CLOUD.col = db.collection('data/users/' + uid);
+    let snaps;
+    try { snaps = await Promise.all(['settings', 'stats', 'seq', 'learn'].map(k => CLOUD.col.doc(k).get().catch(() => null))); }
+    catch { return; }
+    const [rSet, rStats, rSeq, rLearn] = snaps.map(s => (s && s.exists) ? ((s.data() || {}).d || null) : null);
+    // sloučení: statistiky po klíčích (víc pokusů vyhrává), nastavení a pozice: účet má přednost
+    if (rStats) for (const k in rStats) { const r = rStats[k], l = stats[k]; if (!l || (r[0] || 0) > (l[0] || 0)) stats[k] = r; }
+    if (rSet) Object.assign(S, rSet);
+    if (rSeq) Object.assign(seqPos, rSeq);
+    if (rLearn) Object.assign(learnPos, rLearn);
+    // ulož sloučený stav zpět (lokálně i do účtu) a překresli
+    store.set('stats', stats); store.set('settings', S); store.set('seq', seqPos); store.set('learn', learnPos);
+    if (DATA) { S.subj = S.subj.filter(id => subjects.some(s => s.id === id)); buildChips(); }
+    syncTop(); render();
+  }
 
   const pool = () => DATA ? DATA.q[S.v].filter(q => S.subj.includes(q.s)) : [];
   const subjName = s => { const x = subjects.find(x => x.id === s); return x ? sname(x) : ''; };
@@ -590,7 +630,7 @@ footer a { color: var(--accent); }
     else if (e.key === 'Enter' && cur.picked != null && !e.target.matches('button:not(#next)')) { e.preventDefault(); nextQ(); }
   });
 
-  syncTop(); render();
+  syncTop(); render(); cloudInit();
   fetch('questions.json').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => {
     DATA = d; subjects = d.subjects;
     S.subj = S.subj.filter(id => subjects.some(s => s.id === id));
