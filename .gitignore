@@ -1,0 +1,9 @@
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+
+# Node (pokud přibude build/tooling)
+node_modules/
+dist/
