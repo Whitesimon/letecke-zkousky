@@ -44,6 +44,12 @@ Synchronizace postupu mezi zařízeními funguje: na **claude.ai** přes Claude 
 - **historie zkoušek nanečisto** s trendem (poslední / nejlepší / zlepšení)
 - **odhad připravenosti** ve statistikách (pravidlo 75 % na předmět)
 - klávesa **F** = označit otázku; **A–D / 1–4** = odpověď; **←/→** = navigace
+- **chytré opakování (SRS)** 🧠 – otázky se vracejí ve správný čas
+- **dnešní dávka** – 20 otázek na míru (slabé + nové) se shrnutím
+- **opakuj špatné, dokud je nezvládneš** (doučování)
+- **graf pokroku v čase** 📈 (úspěšnost / prošlé otázky)
+- **zvuk + vibrace** odezvy, **velikost písma**, **úvodní obrazovka**
+- **sdílení výsledku** zkoušky jako obrázek 📤
 - **vyhledávání otázek** (podle čísla nebo textu) 🔎
 - **vlastní poznámky** k otázkám (ukládají se k účtu) 📝
 - **barevné tečky zvládnutí** u témat (zelená/žlutá/červená podle úspěšnosti)

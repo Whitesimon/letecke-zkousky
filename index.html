@@ -349,6 +349,69 @@ footer a { color: var(--accent); }
     store.set('srs', srs);
   }
 
+  // ---------- denní snímek pro graf pokroku ----------
+  function snapshotHist() {
+    if (!DATA) return;
+    const all = DATA.q[S.v];
+    let seen = 0, att = 0, ok = 0;
+    for (const q of all) { const r = stats[key(q)]; if (r) { seen++; att += r[0]; ok += r[1]; } }
+    const suc = att ? Math.round(100 * ok / att) : 0, cov = all.length ? Math.round(100 * seen / all.length) : 0;
+    const arr = hist[S.v] || (hist[S.v] = []); const t = today();
+    if (arr.length && arr[arr.length - 1].d === t) arr[arr.length - 1] = { d: t, suc, cov };
+    else arr.push({ d: t, suc, cov });
+    if (arr.length > 60) hist[S.v] = arr.slice(-60);
+    store.set('hist', hist);
+  }
+  function progressChart(arr) {
+    const w = 320, h = 110, pad = 8, n = arr.length;
+    const xs = i => pad + (n <= 1 ? (w - 2 * pad) / 2 : i * (w - 2 * pad) / (n - 1));
+    const ys = v => h - pad - (v / 100) * (h - 2 * pad);
+    const path = f => arr.map((p, i) => (i ? 'L' : 'M') + xs(i).toFixed(1) + ' ' + ys(p[f]).toFixed(1)).join(' ');
+    const wrap = el('div', { style: 'width:100%' });
+    wrap.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" style="display:block;height:120px" preserveAspectRatio="none">' +
+      '<line x1="' + pad + '" y1="' + ys(75).toFixed(1) + '" x2="' + (w - pad) + '" y2="' + ys(75).toFixed(1) + '" stroke="var(--line)" stroke-dasharray="4 4"/>' +
+      '<path d="' + path('cov') + '" fill="none" stroke="var(--muted)" stroke-width="2" opacity="0.55"/>' +
+      '<path d="' + path('suc') + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>' +
+      '</svg>';
+    return wrap;
+  }
+  function wrongNote(q, picked) {
+    if (picked == null || picked === q.c) return null;
+    return el('div', { class: 'explain', style: 'border-left:3px solid var(--bad)' },
+      el('p', { style: 'margin:0' }, el('b', { style: 'color:var(--bad)', text: 'Tvoje odpověď: ' }), q.a[picked]),
+      el('p', { style: 'margin:4px 0 0' }, el('b', { style: 'color:var(--ok)', text: 'Správná odpověď: ' }), q.a[q.c]));
+  }
+  async function shareResult(pctVal, pass) {
+    const txt = 'ÚCL Zkouška nanečisto (' + VNAME[S.v] + '): ' + pctVal + ' % – ' + (pass ? 'prošel ✅' : 'neprošel ❌') + '\nTrénuj i ty: https://whitesimon.github.io/letecke-zkousky/';
+    try {
+      const blob = await resultCard(pctVal, pass);
+      if (blob && navigator.canShare && navigator.canShare({ files: [new File([blob], 'vysledek.png', { type: 'image/png' })] })) {
+        await navigator.share({ files: [new File([blob], 'vysledek.png', { type: 'image/png' })], text: txt });
+        return;
+      }
+      if (navigator.share) { await navigator.share({ text: txt }); return; }
+      if (blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'vysledek.png'; a.click(); return; }
+      await navigator.clipboard.writeText(txt);
+    } catch {}
+  }
+  function resultCard(pctVal, pass) {
+    return new Promise(res => {
+      try {
+        const c = document.createElement('canvas'); c.width = 1000; c.height = 560;
+        const x = c.getContext('2d');
+        const g = x.createLinearGradient(0, 0, 1000, 560); g.addColorStop(0, '#1d5fa6'); g.addColorStop(1, '#0e2a4a');
+        x.fillStyle = g; x.fillRect(0, 0, 1000, 560);
+        x.fillStyle = '#fff'; x.textAlign = 'center';
+        x.font = '700 44px sans-serif'; x.fillText('ÚCL Zkouška nanečisto', 500, 110);
+        x.font = '600 28px sans-serif'; x.fillStyle = '#bcd4ef'; x.fillText(VNAME[S.v].toUpperCase(), 500, 160);
+        x.font = '800 190px sans-serif'; x.fillStyle = '#fff'; x.fillText(pctVal + ' %', 500, 370);
+        x.font = '700 40px sans-serif'; x.fillStyle = pass ? '#5cc58c' : '#f2837a'; x.fillText(pass ? 'PROŠEL ✓' : 'NEPROŠEL', 500, 450);
+        x.font = '500 24px sans-serif'; x.fillStyle = '#9fb8d6'; x.fillText('whitesimon.github.io/letecke-zkousky', 500, 520);
+        c.toBlob(b => res(b), 'image/png');
+      } catch { res(null); }
+    });
+  }
+
   let DATA = null, subjects = [];
   let cur = null;          // procvičování: {q, order, picked}
   let recent = [];
@@ -362,6 +425,7 @@ footer a { color: var(--accent); }
   let exams = store.get('exams', {});                 // 'A'/'H'/'S' -> [{t,p,pass}]
   let notes = store.get('notes', {});                 // key(q) -> text poznámky
   let srs = store.get('srs', {});                     // key(q) -> {due:'YYYY-MM-DD', ivl:dny} (chytré opakování)
+  let hist = store.get('hist', {});                   // 'A'/'H'/'S' -> [{d, suc, cov}] denní snímek pro graf
   let davka = null;                                    // dnešní dávka (jen v paměti)
   let drillQueue = [];                                 // doučování špatných (jen v paměti)
   let deferredPrompt = null;                          // pro "Přidat na plochu"
@@ -967,6 +1031,7 @@ footer a { color: var(--accent); }
     if (done) {
       const ok = cur.picked === q.c;
       acts.append(el('span', { class: 'verdict ' + (ok ? 'ok' : 'bad'), text: ok ? 'Dobře' : 'Špatně' }));
+      const wn = wrongNote(q, cur.picked); if (wn) card.append(wn);
       const ex = explainBox(q); if (ex) card.append(ex);
       if (q.p) card.append(el('p', { class: 'note', text: 'Poznámka: ' + q.p }));
       card.append(noteBox(q));
@@ -1026,6 +1091,7 @@ footer a { color: var(--accent); }
     if (answered) {
       const good = it.picked === q.c;
       acts.append(el('span', { class: 'verdict ' + (good ? 'ok' : 'bad'), text: good ? 'Dobře' : 'Špatně' }));
+      const wn = wrongNote(q, it.picked); if (wn) card.append(wn);
       const ex = explainBox(q); if (ex) card.append(ex);
       if (q.p) card.append(el('p', { class: 'note', text: 'Poznámka: ' + q.p }));
       card.append(noteBox(q));
@@ -1117,7 +1183,7 @@ footer a { color: var(--accent); }
     stage.append(el('div', { class: 'card' },
       el('div', { class: 'row' }, el('span', { class: 'big', text: pct(ok, tot) + ' %' }), el('span', { class: 'verdict ' + (allPass ? 'ok' : 'bad'), text: allPass ? 'Zkouška by prošla' : 'Zkouška by neprošla' })),
       el('div', { class: 'tablewrap' }, el('table', { class: 'res' }, el('thead', {}, el('tr', {}, el('th', { text: 'Předmět' }), el('th', { class: 'num', text: 'Správně' }), el('th', { class: 'num', text: '%' }), el('th', { text: 'Výsledek' }))), tb)),
-      el('div', { class: 'actions' }, el('span', { class: 'sp' }), el('button', { type: 'button', class: 'btn primary', onclick: () => { exam = null; startExam(); }, text: 'Nová zkouška' }))));
+      el('div', { class: 'actions' }, el('button', { type: 'button', class: 'btn', onclick: () => shareResult(pct(ok, tot), allPass), text: '📤 Sdílet' }), el('span', { class: 'sp' }), el('button', { type: 'button', class: 'btn primary', onclick: () => { exam = null; startExam(); }, text: 'Nová zkouška' }))));
     if (wrong.length) stage.append(el('div', { class: 'card' }, el('span', { class: 'label', text: 'Chybné odpovědi (' + wrong.length + ')' }),
       el('div', { class: 'review' }, wrong.map(x => el('div', {}, el('p', { text: code(x.q.s) + ' ' + x.q.n + ': ' + x.q.t }),
         x.picked != null ? el('span', { class: 'w', text: x.q.a[x.picked] }) : el('span', { class: 'w', text: 'bez odpovědi' }), ' ', el('span', { class: 'c', text: '✓ ' + x.q.a[x.q.c] }), explainBox(x.q, true))))));
@@ -1128,6 +1194,7 @@ footer a { color: var(--accent); }
   function renderStats() {
     const pane = $('#pane-stat'); pane.textContent = '';
     if (!DATA) return;
+    snapshotHist();
     const all = DATA.q[S.v];
     let seen = 0, att = 0, okc = 0, wrongNow = 0;
     const rows = subjects.map(s => {
@@ -1164,6 +1231,21 @@ footer a { color: var(--accent); }
         el('div', { class: 'num hide-s' }, el('b', { text: r.sa ? pct(r.so, r.sa) + ' %' : '–' }))));
     }
     pane.append(el('div', { class: 'card' }, el('div', { class: 'legend' }, el('span', {}, el('i', { style: 'background:var(--ok)' }), 'naposledy správně'), el('span', {}, el('i', { style: 'background:var(--bad)' }), 'naposledy špatně'), el('span', { text: 'čísla: prošlé otázky · úspěšnost' })), list));
+
+    // graf pokroku v čase
+    const hv = hist[S.v] || [];
+    const chartCard = el('div', { class: 'card' }, el('span', { class: 'label', text: 'Pokrok v čase – ' + VNAME[S.v] }));
+    if (hv.length >= 2) {
+      const lastH = hv[hv.length - 1];
+      chartCard.append(progressChart(hv),
+        el('div', { class: 'legend' },
+          el('span', {}, el('i', { style: 'background:var(--accent)' }), 'úspěšnost ' + lastH.suc + ' %'),
+          el('span', {}, el('i', { style: 'background:var(--muted)' }), 'prošlé otázky ' + lastH.cov + ' %'),
+          el('span', { text: 'čárkovaně 75 %' })));
+    } else {
+      chartCard.append(el('p', { style: 'margin:0;color:var(--muted);font-size:.9rem', text: 'Graf se objeví po pár dnech procvičování – ukáže vývoj tvojí úspěšnosti a kolik otázek máš prošlých.' }));
+    }
+    pane.append(chartCard);
     // (účet + připomínky jsou teď v panelu „Účet" nahoře)
 
     // denní cíl
