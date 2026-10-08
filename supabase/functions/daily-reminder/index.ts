@@ -31,7 +31,7 @@ Deno.serve(async () => {
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 })
 
   const payload = JSON.stringify({
-    title: 'Letecké zkoušky',
+    title: 'ÚCL Zkoušky',
     body: MSGS[Math.floor(Math.random() * MSGS.length)],
   })
 

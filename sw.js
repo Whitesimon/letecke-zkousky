@@ -1,6 +1,6 @@
 /* Service worker: offline běh + příprava na denní oznámení.
    Verzi zvedni (v1 -> v2 ...) při změně těchto pravidel, aby se stará cache smazala. */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = 'letecke-zkousky-' + VERSION;
 
 // App shell + velká neměnná data. Obrázky se dokešují až za běhu (podle potřeby).
@@ -76,7 +76,7 @@ function pickMsg() { return MSGS[Math.floor(Math.random() * MSGS.length)]; }
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data ? e.data.text() : '' }; }
-  const title = d.title || 'Letecké zkoušky';
+  const title = d.title || 'ÚCL Zkoušky';
   const body = d.body || pickMsg();
   e.waitUntil(self.registration.showNotification(title, {
     body, icon: './icon-192.png', badge: './icon-192.png', tag: 'daily', lang: 'cs'
@@ -86,7 +86,7 @@ self.addEventListener('push', e => {
 // Periodická synchronizace (Chrome/Android, nejlepší bez serveru) -> denní připomínka
 self.addEventListener('periodicsync', e => {
   if (e.tag === 'daily-reminder') {
-    e.waitUntil(self.registration.showNotification('Letecké zkoušky', {
+    e.waitUntil(self.registration.showNotification('ÚCL Zkoušky', {
       body: pickMsg(), icon: './icon-192.png', badge: './icon-192.png', tag: 'daily', lang: 'cs'
     }));
   }
