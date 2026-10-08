@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ÚCL Zkoušky">
-<script>try{var t=(JSON.parse(localStorage.getItem('ppl.settings'))||{}).theme;if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script>try{var s=JSON.parse(localStorage.getItem('ppl.settings'))||{};if(s.theme==='light'||s.theme==='dark')document.documentElement.dataset.theme=s.theme;if(s.fontScale&&s.fontScale!==1)document.documentElement.style.fontSize=Math.round(s.fontScale*100)+'%';}catch(e){}</script>
 <script src="config.js"></script>
 </head><body>
 <title>ÚCL Zkoušky</title>
@@ -47,7 +47,7 @@
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.25); color-scheme: dark; }
 
 * { box-sizing: border-box; }
-body { background: var(--bg); color: var(--ink); font: 400 17px/1.5 var(--f-body); }
+body { background: var(--bg); color: var(--ink); font: 400 1.0625rem/1.5 var(--f-body); }
 .wrap { max-width: 780px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 40px; display: flex; flex-direction: column; gap: 18px; }
 button { font: inherit; color: inherit; cursor: pointer; }
 button:focus-visible, a:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -253,6 +253,8 @@ footer a { color: var(--accent); }
       <div class="modes" id="modes">
         <button type="button" class="mode" data-mode="learn"><b>Učení</b><small>Správná odpověď hned s vysvětlením</small></button>
         <button type="button" class="mode" data-mode="random"><b>Náhodně</b><small>Otázky v náhodném pořadí</small></button>
+        <button type="button" class="mode" data-mode="smart"><b>Chytře</b><small>Opakování ve správný čas</small></button>
+        <button type="button" class="mode" data-mode="davka"><b>Dávka</b><small>Dnešních 20 na míru</small></button>
         <button type="button" class="mode" data-mode="seq"><b>Postupně</b><small>Jedna po druhé, pamatuje si místo</small></button>
         <button type="button" class="mode" data-mode="wrong"><b>Chybné</b><small>Jen otázky, kde jsem chyboval</small></button>
         <button type="button" class="mode" data-mode="flag"><b>Označené</b><small>Jen otázky s hvězdičkou</small></button>
@@ -326,7 +328,7 @@ footer a { color: var(--accent); }
     get(k, d) { try { const v = localStorage.getItem('ppl.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem('ppl.' + k, JSON.stringify(v)); } catch {} cloudWrite(k, v); sbWrite(k, v); },
   };
-  const S = Object.assign({ v: 'A', mode: 'random', subj: [1,2,3,4,5,6,7,8,9], shuffle: true, tab: 'ucit', goal: 20 }, store.get('settings', {}));
+  const S = Object.assign({ v: 'A', mode: 'random', subj: [1,2,3,4,5,6,7,8,9], shuffle: true, tab: 'ucit', goal: 20, sound: true, haptics: true, fontScale: 1, drill: false, onboarded: false }, store.get('settings', {}));
   let stats = store.get('stats', {});      // "A:1:58" -> [pokusy, správně, poslední 1/0]
   let seqPos = store.get('seq', {});
   const saveS = () => store.set('settings', S);
@@ -334,7 +336,17 @@ footer a { color: var(--accent); }
   function record(q, ok) {
     const k = key(q), r = stats[k] || [0, 0, 0];
     r[0]++; if (ok) r[1]++; r[2] = ok ? 1 : 0; stats[k] = r; store.set('stats', stats);
-    touchStreak(); bumpDaily(); updateStreakUI();
+    srsUpdate(q, ok); touchStreak(); bumpDaily(); updateStreakUI();
+  }
+  // chytré opakování: správně -> delší interval, špatně -> brzy znovu
+  const SRS_STEPS = [1, 3, 7, 16, 35, 90];
+  function srsUpdate(q, ok) {
+    const k = key(q), cur = srs[k] || { ivl: 0 };
+    let ivl;
+    if (ok) { const i = SRS_STEPS.indexOf(cur.ivl); ivl = cur.ivl === 0 ? 1 : SRS_STEPS[Math.min(i + 1, SRS_STEPS.length - 1)]; }
+    else ivl = 0;
+    srs[k] = { ivl, due: new Date(Date.now() + ivl * 864e5).toISOString().slice(0, 10) };
+    store.set('srs', srs);
   }
 
   let DATA = null, subjects = [];
@@ -349,6 +361,9 @@ footer a { color: var(--accent); }
   let daily = store.get('daily', { d: null, n: 0 });  // dnešní počet zodpovězených
   let exams = store.get('exams', {});                 // 'A'/'H'/'S' -> [{t,p,pass}]
   let notes = store.get('notes', {});                 // key(q) -> text poznámky
+  let srs = store.get('srs', {});                     // key(q) -> {due:'YYYY-MM-DD', ivl:dny} (chytré opakování)
+  let davka = null;                                    // dnešní dávka (jen v paměti)
+  let drillQueue = [];                                 // doučování špatných (jen v paměti)
   let deferredPrompt = null;                          // pro "Přidat na plochu"
 
   // ---------- hvězdičky (označené otázky) ----------
@@ -489,11 +504,21 @@ footer a { color: var(--accent); }
       }
     }
     box.append(acc);
-    // Vzhled
+    // Vzhled + nastavení
     const th = S.theme || 'auto';
-    box.append(el('div', { class: 'card' }, el('div', { class: 'remind' },
-      el('div', { class: 't', style: 'flex:1' }, el('b', { text: '🎨 Vzhled' }), el('p', { text: 'Motiv: ' + (th === 'light' ? 'světlý' : th === 'dark' ? 'tmavý' : 'automatický') })),
-      el('button', { type: 'button', class: 'btn', style: 'margin-left:auto', onclick: () => { cycleTheme(); renderAccount(); }, text: 'Přepnout' }))));
+    const toggleRow = (label, on, fn) => el('div', { class: 'remind' },
+      el('div', { class: 't', style: 'flex:1' }, el('b', { text: label })),
+      el('button', { type: 'button', class: 'btn' + (on ? ' primary' : ''), style: 'margin-left:auto', onclick: () => { fn(); renderAccount(); }, text: on ? 'Zapnuto' : 'Vypnuto' }));
+    box.append(el('div', { class: 'card' }, el('span', { class: 'label', text: 'Nastavení' }),
+      el('div', { class: 'remind' },
+        el('div', { class: 't', style: 'flex:1' }, el('b', { text: '🎨 Motiv' }), el('p', { text: th === 'light' ? 'světlý' : th === 'dark' ? 'tmavý' : 'automatický' })),
+        el('button', { type: 'button', class: 'btn', style: 'margin-left:auto', onclick: () => { cycleTheme(); renderAccount(); }, text: 'Přepnout' })),
+      el('div', { class: 'remind' },
+        el('div', { class: 't', style: 'flex:1' }, el('b', { text: '🔠 Velikost písma' }), el('p', { text: FONTNAME[S.fontScale || 1] || 'normální' })),
+        el('button', { type: 'button', class: 'btn', style: 'margin-left:auto', onclick: () => { cycleFont(); renderAccount(); }, text: 'Změnit' })),
+      toggleRow('🔊 Zvuk odezvy', !!S.sound, () => { S.sound = !S.sound; saveS(); }),
+      toggleRow('📳 Vibrace', !!S.haptics, () => { S.haptics = !S.haptics; saveS(); }),
+      toggleRow('🔁 Opakovat špatné, dokud je nezvládnu', !!S.drill, () => { S.drill = !S.drill; saveS(); })));
     // Připomínky
     const remSt = el('span', { style: 'font-size:.82rem;color:var(--muted);flex-basis:100%' });
     box.append(el('div', { class: 'card' }, el('div', { class: 'remind' },
@@ -519,6 +544,49 @@ footer a { color: var(--accent); }
     const order = ['auto', 'light', 'dark'];
     S.theme = order[(order.indexOf(S.theme || 'auto') + 1) % order.length];
     saveS(); applyTheme();
+  }
+
+  // ---------- velikost písma ----------
+  const FONTS = [0.9, 1, 1.15, 1.3], FONTNAME = { 0.9: 'malé', 1: 'normální', 1.15: 'větší', 1.3: 'velké' };
+  function applyFont() { document.documentElement.style.fontSize = Math.round((S.fontScale || 1) * 100) + '%'; }
+  function cycleFont() { S.fontScale = FONTS[(FONTS.indexOf(S.fontScale || 1) + 1) % FONTS.length]; saveS(); applyFont(); }
+
+  // ---------- odezva: zvuk + vibrace ----------
+  let actx = null;
+  function beep(ok) {
+    if (!S.sound) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended') actx.resume();
+      const t = actx.currentTime;
+      const tone = (freq, start, dur, vol) => {
+        const o = actx.createOscillator(), g = actx.createGain();
+        o.connect(g); g.connect(actx.destination); o.type = 'sine'; o.frequency.value = freq;
+        g.gain.setValueAtTime(0.0001, t + start);
+        g.gain.exponentialRampToValueAtTime(vol, t + start + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + start + dur);
+        o.start(t + start); o.stop(t + start + dur + 0.02);
+      };
+      if (ok) { tone(660, 0, 0.12, 0.14); tone(990, 0.09, 0.16, 0.14); }   // veselý dvojtón nahoru
+      else { tone(300, 0, 0.18, 0.12); tone(200, 0.12, 0.22, 0.12); }       // tón dolů
+    } catch {}
+  }
+  function feedback(ok) { beep(ok); if (S.haptics && navigator.vibrate) { try { navigator.vibrate(ok ? 20 : [35, 45, 35]); } catch {} } }
+
+  // ---------- úvodní obrazovka (první spuštění) ----------
+  function showOnboarding() {
+    if (S.onboarded) return;
+    const ov = el('div', { class: 'search' });
+    ov.append(el('div', { class: 'search-panel', style: 'max-width:460px;gap:14px' },
+      el('b', { style: 'font:700 1.6rem/1.1 var(--f-display)', text: 'Vítej v ÚCL Zkoušky ✈️' }),
+      el('ul', { style: 'margin:0;padding-left:20px;line-height:1.75' },
+        el('li', {}, el('b', { text: 'Procvičuj' }), ' v režimech Učení, Náhodně, Chytře – nebo si dej Zkoušku nanečisto.'),
+        el('li', {}, el('b', { text: 'Hvězdička ⭐' }), ' označí těžké otázky, ', el('b', { text: '📝 poznámka' }), ' si uloží tvůj tahák.'),
+        el('li', {}, el('b', { text: '👤 Účet' }), ' nahoře – po přihlášení máš postup na všech zařízeních.'),
+        el('li', {}, el('b', { text: '🎯 Cíl' }), ' a ', el('b', { text: '🔥 série' }), ' tě udrží v tempu; ', el('b', { text: '📊 statistiky' }), ' ukážou pokrok.')),
+      el('div', { class: 'actions' }, el('span', { class: 'sp' }),
+        el('button', { type: 'button', class: 'btn primary', onclick: () => { S.onboarded = true; saveS(); ov.remove(); }, text: 'Začít 🚀' }))));
+    document.body.append(ov);
   }
 
   // ---------- denní připomínky (oznámení) ----------
@@ -600,9 +668,9 @@ footer a { color: var(--accent); }
     if (!uid) return;
     CLOUD.col = db.collection('data/users/' + uid);
     let snaps;
-    try { snaps = await Promise.all(['settings', 'stats', 'seq', 'learn', 'flags', 'streak', 'daily', 'exams', 'notes'].map(k => CLOUD.col.doc(k).get().catch(() => null))); }
+    try { snaps = await Promise.all(['settings', 'stats', 'seq', 'learn', 'flags', 'streak', 'daily', 'exams', 'notes', 'srs'].map(k => CLOUD.col.doc(k).get().catch(() => null))); }
     catch { return; }
-    const [rSet, rStats, rSeq, rLearn, rFlags, rStreak, rDaily, rExams, rNotes] = snaps.map(s => (s && s.exists) ? ((s.data() || {}).d || null) : null);
+    const [rSet, rStats, rSeq, rLearn, rFlags, rStreak, rDaily, rExams, rNotes, rSrs] = snaps.map(s => (s && s.exists) ? ((s.data() || {}).d || null) : null);
     // sloučení: statistiky po klíčích (víc pokusů vyhrává), nastavení a pozice: účet má přednost
     if (rStats) for (const k in rStats) { const r = rStats[k], l = stats[k]; if (!l || (r[0] || 0) > (l[0] || 0)) stats[k] = r; }
     if (rSet) Object.assign(S, rSet);
@@ -618,16 +686,17 @@ footer a { color: var(--accent); }
       exams[v].sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0); if (exams[v].length > 30) exams[v] = exams[v].slice(-30);
     }
     if (rNotes) Object.assign(notes, rNotes);           // poznámky: sjednocení
+    if (rSrs) for (const kk in rSrs) { const r = rSrs[kk], l = srs[kk]; if (!l || (r.ivl || 0) > (l.ivl || 0)) srs[kk] = r; }
     // ulož sloučený stav zpět (lokálně i do účtu) a překresli
     store.set('stats', stats); store.set('settings', S); store.set('seq', seqPos); store.set('learn', learnPos);
-    store.set('flags', flags); store.set('streak', streak); store.set('daily', daily); store.set('exams', exams); store.set('notes', notes);
+    store.set('flags', flags); store.set('streak', streak); store.set('daily', daily); store.set('exams', exams); store.set('notes', notes); store.set('srs', srs);
     if (DATA) { S.subj = S.subj.filter(id => subjects.some(s => s.id === id)); buildChips(); }
     applyTheme(); updateStreakUI(); syncTop(); render();
   }
 
   // ---------- sjednocení jednoho klíče (sdílené pro claude i Supabase) ----------
-  const SKEYS = ['settings', 'stats', 'seq', 'learn', 'flags', 'streak', 'daily', 'exams', 'notes'];
-  const stateFor = k => ({ settings: S, stats, seq: seqPos, learn: learnPos, flags, streak, daily, exams, notes }[k]);
+  const SKEYS = ['settings', 'stats', 'seq', 'learn', 'flags', 'streak', 'daily', 'exams', 'notes', 'srs'];
+  const stateFor = k => ({ settings: S, stats, seq: seqPos, learn: learnPos, flags, streak, daily, exams, notes, srs }[k]);
   function applyRemote(k, rv) {
     if (rv == null) return;
     if (k === 'stats') { for (const kk in rv) { const r = rv[kk], l = stats[kk]; if (!l || (r[0] || 0) > (l[0] || 0)) stats[kk] = r; } }
@@ -636,6 +705,7 @@ footer a { color: var(--accent); }
     else if (k === 'learn') Object.assign(learnPos, rv);
     else if (k === 'flags') Object.assign(flags, rv);
     else if (k === 'notes') Object.assign(notes, rv);
+    else if (k === 'srs') { for (const kk in rv) { const r = rv[kk], l = srs[kk]; if (!l || (r.ivl || 0) > (l.ivl || 0)) srs[kk] = r; } }
     else if (k === 'streak') { if (rv.last && (!streak.last || rv.last > streak.last || (rv.last === streak.last && (rv.count || 0) > (streak.count || 0)))) Object.assign(streak, rv); }
     else if (k === 'daily') { if (rv.d === today() && (daily.d !== today() || (rv.n || 0) > daily.n)) daily = { d: today(), n: rv.n || 0 }; }
     else if (k === 'exams') { for (const v in rv) { exams[v] = exams[v] || []; const seen = new Set(exams[v].map(e => e.t + '|' + e.p + '|' + e.pass)); for (const e of (rv[v] || [])) { const id = e.t + '|' + e.p + '|' + e.pass; if (!seen.has(id)) { seen.add(id); exams[v].push(e); } } exams[v].sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0); if (exams[v].length > 30) exams[v] = exams[v].slice(-30); } }
@@ -785,12 +855,21 @@ footer a { color: var(--accent); }
       let i = seqPos[sk] || 0; if (i >= p.length) i = 0;
       return { q: p[i], idx: i, total: p.length, sk };
     }
+    // doučování: občas vrať otázku, kterou jsi dal špatně, dokud ji nezvládneš
+    if (S.drill && drillQueue.length) {
+      const avail = drillQueue.filter(k => p.some(x => key(x) === k) && (!cur || !cur.q || k !== key(cur.q)));
+      if (avail.length && Math.random() < 0.55) { const q = p.find(x => key(x) === avail[0]); if (q) return { q, drill: true }; }
+    }
     let cand = p;
     if (S.mode === 'wrong') {
       cand = p.filter(q => { const r = stats[key(q)]; return r && r[2] === 0; });
       if (!cand.length) return { none: true };
     } else if (S.mode === 'flag') {
       cand = p.filter(q => flags[key(q)]);
+      if (!cand.length) return { none: true };
+    } else if (S.mode === 'smart') {
+      const t = today();
+      cand = p.filter(q => { const s = srs[key(q)]; return !s || s.due <= t; });
       if (!cand.length) return { none: true };
     }
     // náhodně: přednost otázkám, které ještě nebyly / byly špatně, a ne posledních pár
@@ -812,7 +891,9 @@ footer a { color: var(--accent); }
     if (!cur || !cur.q || cur.picked != null) return;
     cur.picked = i;
     const ok = i === cur.q.c;
+    feedback(ok);
     record(cur.q, ok); session.n++; if (ok) session.ok++;
+    if (S.drill) { const k = key(cur.q); if (ok) drillQueue = drillQueue.filter(x => x !== k); else if (!drillQueue.includes(k)) drillQueue.push(k); }
     render();
     const nb = $('#next'); if (nb) nb.focus({ preventScroll: true });
   }
@@ -860,11 +941,14 @@ footer a { color: var(--accent); }
       el('span', {}, 'Teď: ', el('b', { text: session.ok + ' / ' + session.n }), ' správně' + (session.n ? ' (' + pct(session.ok, session.n) + ' %)' : '')),
       S.mode === 'seq' && cur && cur.q ? el('span', {}, 'Pozice ', el('b', { text: (cur.idx + 1) + ' / ' + cur.total })) : null,
       S.mode === 'wrong' && cur && cur.q ? el('span', {}, 'Zbývá chybných ', el('b', { text: String(cur.left) })) : null,
-      S.mode === 'flag' && cur && cur.q ? el('span', {}, 'Označených ', el('b', { text: String(cur.left) })) : null));
+      S.mode === 'flag' && cur && cur.q ? el('span', {}, 'Označených ', el('b', { text: String(cur.left) })) : null,
+      S.mode === 'smart' && cur && cur.q ? el('span', {}, 'K opakování dnes ', el('b', { text: String(pool().filter(q => { const s = srs[key(q)]; return !s || s.due <= today(); }).length) })) : null,
+      S.drill && drillQueue.length ? el('span', {}, '🔁 K doučení ', el('b', { text: String(drillQueue.length) })) : null));
     if (!cur || cur.none) {
-      const m = S.mode === 'flag'
-        ? ['Žádné označené otázky', 'Ve vybraných tématech nemáte žádnou otázku s hvězdičkou. Otázku označíš tlačítkem ☆ v režimu Učení, Náhodně nebo Postupně.']
-        : ['Žádné chybné otázky', 'Ve vybraných tématech teď nemáte žádnou otázku naposledy zodpovězenou špatně. Pokračujte v režimu Náhodně.'];
+      let m;
+      if (S.mode === 'flag') m = ['Žádné označené otázky', 'Ve vybraných tématech nemáte žádnou otázku s hvězdičkou. Otázku označíš tlačítkem ☆ v režimu Učení, Náhodně nebo Postupně.'];
+      else if (S.mode === 'smart') m = ['Pro dnešek nic k opakování 🎉', 'Vše naplánované máš zopakované. Zkus režim Náhodně, nebo se vrať zítra – chytré opakování ti otázky připomene ve správný čas.'];
+      else m = ['Žádné chybné otázky', 'Ve vybraných tématech teď nemáte žádnou otázku naposledy zodpovězenou špatně. Pokračujte v režimu Náhodně.'];
       stage.append(el('div', { class: 'card empty' }, el('b', { text: m[0] }), m[1]));
       return;
     }
@@ -894,6 +978,60 @@ footer a { color: var(--accent); }
     if (!done && S.mode !== 'seq') acts.append(el('button', { type: 'button', class: 'btn', onclick: () => { cur = null; nextQ(); }, text: 'Přeskočit' }));
     if (!done && S.mode === 'seq') acts.append(el('button', { type: 'button', class: 'btn', onclick: () => seqJump(1), text: 'Přeskočit →' }));
     if (done) acts.append(el('span', { class: 'keys' }, el('kbd', { text: 'Enter' })), el('button', { type: 'button', class: 'btn primary', id: 'next', onclick: nextQ, text: 'Další otázka' }));
+    card.append(acts);
+    stage.append(card);
+  }
+
+  // ---------- dnešní dávka ----------
+  function buildDavka() {
+    const p = pool(), t = today();
+    const scored = p.map(q => {
+      const r = stats[key(q)], s = srs[key(q)];
+      let w = 1; if (!r) w = 3; else if (r[2] === 0) w = 4;
+      if (s && s.due <= t) w += 2;
+      return [q, w * (0.4 + Math.random())];
+    });
+    scored.sort((a, b) => b[1] - a[1]);
+    const list = scored.slice(0, Math.min(20, p.length)).map(([q]) => ({ q, order: order(), picked: null }));
+    for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+    davka = { day: t, list, i: 0 };
+  }
+  function renderDavka(stage) {
+    if (!S.subj.length) { stage.append(el('div', { class: 'card empty' }, el('b', { text: 'Vyberte aspoň jedno téma' }), 'Dnešní dávka se namíchá z vybraných témat.')); return; }
+    if (!davka || davka.day !== today() || !davka.list.length) buildDavka();
+    if (!davka.list.length) { stage.append(el('div', { class: 'card empty' }, el('b', { text: 'Žádné otázky' }))); return; }
+    const total = davka.list.length, ok = davka.list.filter(x => x.picked === x.q.c).length, done = davka.list.filter(x => x.picked != null).length;
+    if (davka.i >= total) {
+      const p = pct(ok, total);
+      stage.append(el('div', { class: 'card' },
+        el('div', { class: 'row' }, el('span', { class: 'big', text: p + ' %' }), el('span', { class: 'verdict ' + (p >= 75 ? 'ok' : 'bad'), text: ok + ' / ' + total + ' správně' })),
+        el('p', { style: 'margin:0;color:var(--muted)', text: p >= 75 ? 'Super práce! 🎉 Co ti dnes nešlo, ti chytré opakování připomene ve správný čas.' : 'Dobrý trénink. Co ti nešlo, se vrátí v chytrém opakování.' }),
+        el('div', { class: 'actions' }, el('span', { class: 'sp' }), el('button', { type: 'button', class: 'btn primary', onclick: () => { buildDavka(); render(); }, text: 'Nová dávka' }))));
+      return;
+    }
+    stage.append(el('div', { class: 'scorebar' }, el('span', {}, 'Dávka ', el('b', { text: (davka.i + 1) + ' / ' + total })), el('span', {}, 'Správně ', el('b', { text: ok + ' / ' + done }))));
+    stage.append(el('div', { style: 'height:6px;background:var(--line);border-radius:3px;overflow:hidden' }, el('i', { style: 'display:block;height:100%;background:var(--accent);width:' + Math.round(100 * davka.i / total) + '%' })));
+    const it = davka.list[davka.i], q = it.q, answered = it.picked != null;
+    const list = el('ol', { class: 'answers' });
+    it.order.forEach((ai, pos) => {
+      let cls = 'ans', mark = '';
+      if (answered && ai === q.c) { cls += ' ok'; mark = 'Správně'; }
+      else if (answered && ai === it.picked) { cls += ' bad'; mark = 'Vaše volba'; }
+      list.append(el('li', {}, el('button', { type: 'button', class: cls, disabled: answered, onclick: () => { it.picked = ai; const good = ai === q.c; feedback(good); record(q, good); render(); } },
+        el('span', { class: 'k', text: LETTERS[pos] }), el('span', { text: q.a[ai] }), el('span', { class: 'mark', text: mark }))));
+    });
+    const card = el('article', { class: 'card' }, meta(q), el('p', { class: 'qtext', text: q.t }), figs(q), list);
+    const acts = el('div', { class: 'actions' });
+    acts.append(flagBtn(q));
+    if (answered) {
+      const good = it.picked === q.c;
+      acts.append(el('span', { class: 'verdict ' + (good ? 'ok' : 'bad'), text: good ? 'Dobře' : 'Špatně' }));
+      const ex = explainBox(q); if (ex) card.append(ex);
+      if (q.p) card.append(el('p', { class: 'note', text: 'Poznámka: ' + q.p }));
+      card.append(noteBox(q));
+    }
+    acts.append(el('span', { class: 'sp' }));
+    if (answered) acts.append(el('button', { type: 'button', class: 'btn primary', id: 'next', onclick: () => { davka.i++; render(); window.scrollTo({ top: $('#stage').offsetTop - 10, behavior: 'smooth' }); }, text: davka.i + 1 >= total ? 'Dokončit' : 'Další →' }));
     card.append(acts);
     stage.append(card);
   }
@@ -1076,7 +1214,7 @@ footer a { color: var(--accent); }
     const stage = $('#stage'); stage.textContent = '';
     stage.className = 'panel';
     if (!DATA) { stage.append(el('div', { class: 'card empty' }, el('b', { text: 'Načítám otázky…' }))); return; }
-    if (S.mode === 'exam') renderExam(stage); else if (S.mode === 'learn') renderLearn(stage); else renderPractice(stage);
+    if (S.mode === 'exam') renderExam(stage); else if (S.mode === 'learn') renderLearn(stage); else if (S.mode === 'davka') renderDavka(stage); else renderPractice(stage);
   }
 
   // ---------- klávesnice ----------
@@ -1100,13 +1238,21 @@ footer a { color: var(--accent); }
       else if (e.key === 'ArrowLeft' && exam.i > 0) { exam.i--; render(); }
       return;
     }
+    if (S.mode === 'davka') {
+      if (!davka || davka.i >= davka.list.length) return;
+      const it = davka.list[davka.i];
+      if (k === 'F') { e.preventDefault(); toggleFlag(it.q); render(); return; }
+      if (pos >= 0 && it.picked == null) { e.preventDefault(); const ai = it.order[pos]; it.picked = ai; const good = ai === it.q.c; feedback(good); record(it.q, good); render(); }
+      else if (e.key === 'Enter' && it.picked != null) { e.preventDefault(); davka.i++; render(); }
+      return;
+    }
     if (!cur || !cur.q) return;
     if (k === 'F') { e.preventDefault(); toggleFlag(cur.q); render(); return; }
     if (pos >= 0 && cur.picked == null) { e.preventDefault(); answer(cur.order[pos]); }
     else if (e.key === 'Enter' && cur.picked != null && !e.target.matches('button:not(#next)')) { e.preventDefault(); nextQ(); }
   });
 
-  applyTheme(); updateStreakUI(); syncTop(); render(); cloudInit(); sbInit();
+  applyTheme(); applyFont(); updateStreakUI(); syncTop(); render(); cloudInit(); sbInit(); showOnboarding();
   // při skrytí/zavření stránky (hlavně mobil v pozadí) ulož rozdělaný postup do účtu hned
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') cloudFlush(); });
   window.addEventListener('pagehide', cloudFlush);
