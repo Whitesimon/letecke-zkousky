@@ -12,8 +12,19 @@
 <script>
 (function(){
   function show(msg){ try{ var d=document.getElementById('errbox'); if(!d){ d=document.createElement('div'); d.id='errbox'; d.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#b3261e;color:#fff;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;padding:12px 14px;white-space:pre-wrap;max-height:55%;overflow:auto'; (document.body||document.documentElement).appendChild(d);} d.textContent='⚠️ Chyba v appce:\n'+msg+'\n\n(Pošli tenhle text/screenshot vývojáři.)'; var sp=document.getElementById('splash'); if(sp) sp.style.display='none'; }catch(e){} }
-  window.addEventListener('error', function(e){ show((e.message||'error')+'  @'+((e.filename||'').split('/').pop())+':'+e.lineno); });
-  window.addEventListener('unhandledrejection', function(e){ var r=e.reason; show('promise: '+((r&&r.message)||r)); });
+  // zobraz jen SKUTEČNĚ fatální chybu (vlastní skript, než se appka načte) – ignoruj cizí "Script error" šum
+  window.addEventListener('error', function(e){
+    if (window.__appReady) return;
+    var m = e.message || '';
+    if (!m || m.indexOf('Script error') === 0 || !e.filename) return;
+    show(m + '  @' + ((e.filename||'').split('/').pop()) + ':' + e.lineno);
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    if (window.__appReady) return;
+    var r = e.reason; var m = (r && r.message) || '';
+    if (!m || m.indexOf('Script error') === 0) return;
+    show('promise: ' + m);
+  });
 })();
 </script>
 </head><body>
@@ -1393,6 +1404,7 @@ footer a { color: var(--accent); }
     DATA = d; subjects = d.subjects;
     S.subj = S.subj.filter(id => subjects.some(s => s.id === id));
     buildChips(); syncTop(); render();
+    window.__appReady = true;
     const sp = $('#splash'); if (sp) { sp.style.opacity = '0'; setTimeout(() => sp.remove(), 350); }
     fetch('explain.json').then(r => r.ok ? r.json() : {}).catch(() => ({})).then(x => { EXPL = x || {}; render(); });
   }).catch(async () => {
