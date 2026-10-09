@@ -9,6 +9,13 @@
 <meta name="apple-mobile-web-app-title" content="ÚCL Zkoušky">
 <script>try{var s=JSON.parse(localStorage.getItem('ppl.settings'))||{};if(s.theme==='light'||s.theme==='dark')document.documentElement.dataset.theme=s.theme;if(s.fontScale&&s.fontScale!==1)document.documentElement.style.fontSize=Math.round(s.fontScale*100)+'%';}catch(e){}</script>
 <script src="config.js"></script>
+<script>
+(function(){
+  function show(msg){ try{ var d=document.getElementById('errbox'); if(!d){ d=document.createElement('div'); d.id='errbox'; d.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#b3261e;color:#fff;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;padding:12px 14px;white-space:pre-wrap;max-height:55%;overflow:auto'; (document.body||document.documentElement).appendChild(d);} d.textContent='⚠️ Chyba v appce:\n'+msg+'\n\n(Pošli tenhle text/screenshot vývojáři.)'; var sp=document.getElementById('splash'); if(sp) sp.style.display='none'; }catch(e){} }
+  window.addEventListener('error', function(e){ show((e.message||'error')+'  @'+((e.filename||'').split('/').pop())+':'+e.lineno); });
+  window.addEventListener('unhandledrejection', function(e){ var r=e.reason; show('promise: '+((r&&r.message)||r)); });
+})();
+</script>
 </head><body>
 <title>ÚCL Zkoušky</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
