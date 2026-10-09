@@ -608,7 +608,10 @@ footer a { color: var(--accent); }
         el('div', { class: 't', style: 'flex:1' }, el('b', { text: '🔠 Velikost písma' }), el('p', { text: FONTNAME[S.fontScale || 1] || 'normální' })),
         el('button', { type: 'button', class: 'btn', style: 'margin-left:auto', onclick: () => { cycleFont(); renderAccount(); }, text: 'Změnit' })),
       toggleRow('🔊 Zvuk odezvy', !!S.sound, () => { S.sound = !S.sound; saveS(); playSound(S.sound ? 'on' : 'off'); }),
-      toggleRow('📳 Vibrace', !!S.haptics, () => { S.haptics = !S.haptics; saveS(); demoVibe(S.haptics); }),
+      (navigator.vibrate
+        ? toggleRow('📳 Vibrace', !!S.haptics, () => { S.haptics = !S.haptics; saveS(); demoVibe(S.haptics); })
+        : el('div', { class: 'remind' }, el('div', { class: 't', style: 'flex:1' }, el('b', { text: '📳 Vibrace' }),
+            el('p', { text: 'iPhone neumí vibrace z webu (omezení Applu). Fungují na Androidu a budou v appce z App Store. Na iPhonu máš aspoň zvuk 🔊.' })))),
       toggleRow('🔁 Opakovat špatné, dokud je nezvládnu', !!S.drill, () => { S.drill = !S.drill; saveS(); })));
     // Připomínky
     const remSt = el('span', { style: 'font-size:.82rem;color:var(--muted);flex-basis:100%' });
@@ -1400,6 +1403,12 @@ footer a { color: var(--accent); }
   // nabídka instalace na plochu (Chrome/Android) – zpřístupní tlačítko ve statistikách
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; if (S.tab === 'stat') renderStats(); });
   window.addEventListener('appinstalled', () => { deferredPrompt = null; });
+  // iOS: odemkni zvuk prvním dotykem/klikem (jinak AudioContext mlčí)
+  function unlockAudio() {
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch {}
+    document.removeEventListener('touchend', unlockAudio); document.removeEventListener('click', unlockAudio);
+  }
+  document.addEventListener('touchend', unlockAudio); document.addEventListener('click', unlockAudio);
   function hideSplash() {
     const sp = $('#splash'); if (!sp) return;
     const wait = Math.max(0, 2000 - (Date.now() - (window.__t0 || Date.now())));  // ať je vždy vidět aspoň 2 s
