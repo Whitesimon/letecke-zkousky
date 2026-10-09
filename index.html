@@ -192,6 +192,9 @@ footer a { color: var(--accent); }
 .remind .t { min-width: 0; }
 .remind .t b { font: 700 1.1rem/1.1 var(--f-display); }
 .remind .t p { margin: 2px 0 0; color: var(--muted); font-size: .85rem; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#splash { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: var(--bg); transition: opacity .35s; }
+#splash .sp { width: 30px; height: 30px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
 /* zvládnutí témat (tečka na chipu) */
 .mdot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: 0 0 auto; }
 /* poznámky k otázce */
@@ -222,6 +225,8 @@ footer a { color: var(--accent); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
+
+<div id="splash"><img src="icon-192.png" alt="" width="84" height="84" style="border-radius:20px;box-shadow:var(--shadow)"><div style="font:700 1.7rem/1 var(--f-display)">ÚCL Zkoušky</div><div class="sp"></div></div>
 
 <div class="wrap">
   <header class="top">
@@ -584,8 +589,8 @@ footer a { color: var(--accent); }
       el('div', { class: 'remind' },
         el('div', { class: 't', style: 'flex:1' }, el('b', { text: '🔠 Velikost písma' }), el('p', { text: FONTNAME[S.fontScale || 1] || 'normální' })),
         el('button', { type: 'button', class: 'btn', style: 'margin-left:auto', onclick: () => { cycleFont(); renderAccount(); }, text: 'Změnit' })),
-      toggleRow('🔊 Zvuk odezvy', !!S.sound, () => { S.sound = !S.sound; saveS(); }),
-      toggleRow('📳 Vibrace', !!S.haptics, () => { S.haptics = !S.haptics; saveS(); }),
+      toggleRow('🔊 Zvuk odezvy', !!S.sound, () => { S.sound = !S.sound; saveS(); playSound(S.sound ? 'on' : 'off'); }),
+      toggleRow('📳 Vibrace', !!S.haptics, () => { S.haptics = !S.haptics; saveS(); demoVibe(S.haptics); }),
       toggleRow('🔁 Opakovat špatné, dokud je nezvládnu', !!S.drill, () => { S.drill = !S.drill; saveS(); })));
     // Připomínky
     const remSt = el('span', { style: 'font-size:.82rem;color:var(--muted);flex-basis:100%' });
@@ -621,24 +626,27 @@ footer a { color: var(--accent); }
 
   // ---------- odezva: zvuk + vibrace ----------
   let actx = null;
-  function beep(ok) {
-    if (!S.sound) return;
+  function playSound(kind) {                 // přehraje vždy (nehledí na S.sound)
     try {
       actx = actx || new (window.AudioContext || window.webkitAudioContext)();
       if (actx.state === 'suspended') actx.resume();
-      const t = actx.currentTime;
+      const t = actx.currentTime, type = kind === 'on' || kind === 'off' ? 'triangle' : 'sine';
       const tone = (freq, start, dur, vol) => {
         const o = actx.createOscillator(), g = actx.createGain();
-        o.connect(g); g.connect(actx.destination); o.type = 'sine'; o.frequency.value = freq;
+        o.connect(g); g.connect(actx.destination); o.type = type; o.frequency.value = freq;
         g.gain.setValueAtTime(0.0001, t + start);
         g.gain.exponentialRampToValueAtTime(vol, t + start + 0.01);
         g.gain.exponentialRampToValueAtTime(0.0001, t + start + dur);
         o.start(t + start); o.stop(t + start + dur + 0.02);
       };
-      if (ok) { tone(660, 0, 0.12, 0.14); tone(990, 0.09, 0.16, 0.14); }   // veselý dvojtón nahoru
-      else { tone(300, 0, 0.18, 0.12); tone(200, 0.12, 0.22, 0.12); }       // tón dolů
+      if (kind === 'ok') { tone(660, 0, 0.12, 0.14); tone(990, 0.09, 0.16, 0.14); }          // odpověď správně
+      else if (kind === 'bad') { tone(300, 0, 0.18, 0.12); tone(200, 0.12, 0.22, 0.12); }     // odpověď špatně
+      else if (kind === 'on') { tone(523, 0, 0.1, 0.14); tone(784, 0.09, 0.12, 0.14); tone(1046, 0.19, 0.18, 0.13); } // zapnuto: vzestupný akord
+      else if (kind === 'off') { tone(784, 0, 0.1, 0.13); tone(392, 0.11, 0.22, 0.12); }       // vypnuto: sestupně
     } catch {}
   }
+  function beep(ok) { if (S.sound) playSound(ok ? 'ok' : 'bad'); }
+  function demoVibe(on) { if (navigator.vibrate) { try { navigator.vibrate(on ? [30, 50, 30, 50, 60] : [160]); } catch {} } } // zap: rytmus, vyp: jedno dlouhé
   function feedback(ok) { beep(ok); if (S.haptics && navigator.vibrate) { try { navigator.vibrate(ok ? 20 : [35, 45, 35]); } catch {} } }
 
   // ---------- úvodní obrazovka (první spuštění) ----------
@@ -1378,6 +1386,7 @@ footer a { color: var(--accent); }
     DATA = d; subjects = d.subjects;
     S.subj = S.subj.filter(id => subjects.some(s => s.id === id));
     buildChips(); syncTop(); render();
+    const sp = $('#splash'); if (sp) { sp.style.opacity = '0'; setTimeout(() => sp.remove(), 350); }
     fetch('explain.json').then(r => r.ok ? r.json() : {}).catch(() => ({})).then(x => { EXPL = x || {}; render(); });
   }).catch(async () => {
     // možná rozbitá uložená verze (service worker cache) – jednorázově vyčistit a načíst znovu
@@ -1387,6 +1396,7 @@ footer a { color: var(--accent); }
       try { if (window.caches) { const ks = await caches.keys(); for (const k of ks) await caches.delete(k); } } catch {}
       location.reload(); return;
     }
+    const sp = $('#splash'); if (sp) { sp.style.opacity = '0'; setTimeout(() => sp.remove(), 350); }
     const stage = $('#stage'); stage.textContent = '';
     stage.append(el('div', { class: 'card empty' }, el('b', { text: 'Otázky se nepodařilo načíst' }), 'Zkontrolujte připojení a obnovte stránku.'));
   });

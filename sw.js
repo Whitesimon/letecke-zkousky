@@ -1,6 +1,6 @@
 /* Service worker: offline běh + příprava na denní oznámení.
    Verzi zvedni (v1 -> v2 ...) při změně těchto pravidel, aby se stará cache smazala. */
-const VERSION = 'v8';
+const VERSION = 'v9';
 const CACHE = 'letecke-zkousky-' + VERSION;
 
 // App shell + velká neměnná data. Obrázky se dokešují až za běhu (podle potřeby).
