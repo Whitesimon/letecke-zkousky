@@ -266,6 +266,7 @@ footer a { color: var(--accent); }
       <div class="chips" id="subjects"></div>
       <div class="row">
         <label class="opt"><input type="checkbox" id="opt-shuffle"> Míchat pořadí odpovědí</label>
+        <label class="opt"><input type="checkbox" id="opt-track"> Počítat do statistik</label>
       </div>
     </div>
     <div id="stage"></div>
@@ -328,15 +329,18 @@ footer a { color: var(--accent); }
     get(k, d) { try { const v = localStorage.getItem('ppl.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem('ppl.' + k, JSON.stringify(v)); } catch {} cloudWrite(k, v); sbWrite(k, v); },
   };
-  const S = Object.assign({ v: 'A', mode: 'random', subj: [1,2,3,4,5,6,7,8,9], shuffle: true, tab: 'ucit', goal: 20, sound: true, haptics: true, fontScale: 1, drill: false, onboarded: false }, store.get('settings', {}));
+  const S = Object.assign({ v: 'A', mode: 'random', subj: [1,2,3,4,5,6,7,8,9], shuffle: true, tab: 'ucit', goal: 20, sound: true, haptics: true, fontScale: 1, drill: false, onboarded: false, track: true }, store.get('settings', {}));
   let stats = store.get('stats', {});      // "A:1:58" -> [pokusy, správně, poslední 1/0]
   let seqPos = store.get('seq', {});
   const saveS = () => store.set('settings', S);
   const key = q => S.v + ':' + q.s + ':' + q.n;
   function record(q, ok) {
-    const k = key(q), r = stats[k] || [0, 0, 0];
-    r[0]++; if (ok) r[1]++; r[2] = ok ? 1 : 0; stats[k] = r; store.set('stats', stats);
-    srsUpdate(q, ok); touchStreak(); bumpDaily(); updateStreakUI();
+    if (S.track !== false) {                  // vypnuto = cvičný režim, nezapisuje se do statistik ani SRS
+      const k = key(q), r = stats[k] || [0, 0, 0];
+      r[0]++; if (ok) r[1]++; r[2] = ok ? 1 : 0; stats[k] = r; store.set('stats', stats);
+      srsUpdate(q, ok);
+    }
+    touchStreak(); bumpDaily(); updateStreakUI();
   }
   // chytré opakování: správně -> delší interval, špatně -> brzy znovu
   const SRS_STEPS = [1, 3, 7, 16, 35, 90];
@@ -847,6 +851,7 @@ footer a { color: var(--accent); }
     $('#pane-ucit').hidden = S.tab !== 'ucit';
     $('#pane-stat').hidden = S.tab !== 'stat';
     $('#opt-shuffle').checked = S.shuffle;
+    $('#opt-track').checked = S.track !== false;
   }
   function buildChips() {
     const box = $('#subjects'); box.textContent = '';
@@ -867,6 +872,7 @@ footer a { color: var(--accent); }
   $('#all-subj').addEventListener('click', () => { S.subj = subjects.map(s => s.id); changed(); });
   $('#no-subj').addEventListener('click', () => { S.subj = []; changed(); });
   $('#opt-shuffle').addEventListener('change', e => { S.shuffle = e.target.checked; saveS(); });
+  $('#opt-track').addEventListener('change', e => { S.track = e.target.checked; saveS(); render(); });
   $('#theme-btn').addEventListener('click', cycleTheme);
   $('#search-btn').addEventListener('click', openSearch);
   $('#search-x').addEventListener('click', closeSearch);
@@ -1007,7 +1013,8 @@ footer a { color: var(--accent); }
       S.mode === 'wrong' && cur && cur.q ? el('span', {}, 'Zbývá chybných ', el('b', { text: String(cur.left) })) : null,
       S.mode === 'flag' && cur && cur.q ? el('span', {}, 'Označených ', el('b', { text: String(cur.left) })) : null,
       S.mode === 'smart' && cur && cur.q ? el('span', {}, 'K opakování dnes ', el('b', { text: String(pool().filter(q => { const s = srs[key(q)]; return !s || s.due <= today(); }).length) })) : null,
-      S.drill && drillQueue.length ? el('span', {}, '🔁 K doučení ', el('b', { text: String(drillQueue.length) })) : null));
+      S.drill && drillQueue.length ? el('span', {}, '🔁 K doučení ', el('b', { text: String(drillQueue.length) })) : null,
+      !S.track ? el('span', { style: 'color:var(--mag);font-weight:700' }, '✎ cvičně – mimo statistiky') : null));
     if (!cur || cur.none) {
       let m;
       if (S.mode === 'flag') m = ['Žádné označené otázky', 'Ve vybraných tématech nemáte žádnou otázku s hvězdičkou. Otázku označíš tlačítkem ☆ v režimu Učení, Náhodně nebo Postupně.'];
@@ -1074,7 +1081,8 @@ footer a { color: var(--accent); }
         el('div', { class: 'actions' }, el('span', { class: 'sp' }), el('button', { type: 'button', class: 'btn primary', onclick: () => { buildDavka(); render(); }, text: 'Nová dávka' }))));
       return;
     }
-    stage.append(el('div', { class: 'scorebar' }, el('span', {}, 'Dávka ', el('b', { text: (davka.i + 1) + ' / ' + total })), el('span', {}, 'Správně ', el('b', { text: ok + ' / ' + done }))));
+    stage.append(el('div', { class: 'scorebar' }, el('span', {}, 'Dávka ', el('b', { text: (davka.i + 1) + ' / ' + total })), el('span', {}, 'Správně ', el('b', { text: ok + ' / ' + done })),
+      !S.track ? el('span', { style: 'color:var(--mag);font-weight:700' }, '✎ cvičně – mimo statistiky') : null));
     stage.append(el('div', { style: 'height:6px;background:var(--line);border-radius:3px;overflow:hidden' }, el('i', { style: 'display:block;height:100%;background:var(--accent);width:' + Math.round(100 * davka.i / total) + '%' })));
     const it = davka.list[davka.i], q = it.q, answered = it.picked != null;
     const list = el('ol', { class: 'answers' });
@@ -1132,8 +1140,10 @@ footer a { color: var(--accent); }
     const tot = exam.qs.length, okc = exam.qs.filter(x => x.picked === x.q.c).length;
     const by = {}; for (const it of exam.qs) { const b = by[it.q.s] || (by[it.q.s] = { n: 0, ok: 0 }); b.n++; if (it.picked === it.q.c) b.ok++; }
     const allPass = Object.values(by).every(b => b.ok / b.n >= PASS);
-    const arr = exams[S.v] || (exams[S.v] = []); arr.push({ t: today(), p: pct(okc, tot), pass: allPass });
-    if (arr.length > 30) arr.shift(); store.set('exams', exams);
+    if (S.track !== false) {                  // cvičný režim: neukládat ani výsledek zkoušky do historie
+      const arr = exams[S.v] || (exams[S.v] = []); arr.push({ t: today(), p: pct(okc, tot), pass: allPass });
+      if (arr.length > 30) arr.shift(); store.set('exams', exams);
+    }
     render(); window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   function renderExam(stage) {
@@ -1155,7 +1165,8 @@ footer a { color: var(--accent); }
     const it = exam.qs[exam.i], q = it.q;
     const dots = el('div', { class: 'dots' }, exam.qs.map((x, j) => el('button', { type: 'button', class: 'dot' + (x.picked != null ? ' done' : '') + (j === exam.i ? ' cur' : ''), 'aria-label': 'Otázka ' + (j + 1), onclick: () => { exam.i = j; exam.confirm = false; render(); }, text: String(j + 1) })));
     stage.append(el('div', { class: 'examhead' }, el('span', { class: 'timer', id: 'timer', text: fmt(exam.end - Date.now()) }),
-      el('span', { style: 'color:var(--muted);font-size:.9rem', text: 'Zodpovězeno ' + exam.qs.filter(x => x.picked != null).length + ' z ' + exam.qs.length })), dots);
+      el('span', { style: 'color:var(--muted);font-size:.9rem', text: 'Zodpovězeno ' + exam.qs.filter(x => x.picked != null).length + ' z ' + exam.qs.length }),
+      !S.track ? el('span', { style: 'color:var(--mag);font-weight:700;font-size:.9rem', text: '✎ mimo statistiky' }) : null), dots);
     const list = el('ol', { class: 'answers' });
     it.order.forEach((ai, pos) => list.append(el('li', {}, el('button', { type: 'button', class: 'ans' + (it.picked === ai ? ' sel' : ''), onclick: () => { it.picked = ai; render(); } },
       el('span', { class: 'k', text: LETTERS[pos] }), el('span', { text: q.a[ai] }), el('span', { class: 'mark' })))));
