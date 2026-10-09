@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ÚCL Zkoušky">
-<script>try{var s=JSON.parse(localStorage.getItem('ppl.settings'))||{};if(s.theme==='light'||s.theme==='dark')document.documentElement.dataset.theme=s.theme;if(s.fontScale&&s.fontScale!==1)document.documentElement.style.fontSize=Math.round(s.fontScale*100)+'%';}catch(e){}</script>
+<script>window.__t0=Date.now();try{var s=JSON.parse(localStorage.getItem('ppl.settings'))||{};if(s.theme==='light'||s.theme==='dark')document.documentElement.dataset.theme=s.theme;if(s.fontScale&&s.fontScale!==1)document.documentElement.style.fontSize=Math.round(s.fontScale*100)+'%';}catch(e){}</script>
 <script src="config.js"></script>
 <script>
 (function(){
@@ -1400,12 +1400,17 @@ footer a { color: var(--accent); }
   // nabídka instalace na plochu (Chrome/Android) – zpřístupní tlačítko ve statistikách
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; if (S.tab === 'stat') renderStats(); });
   window.addEventListener('appinstalled', () => { deferredPrompt = null; });
+  function hideSplash() {
+    const sp = $('#splash'); if (!sp) return;
+    const wait = Math.max(0, 2000 - (Date.now() - (window.__t0 || Date.now())));  // ať je vždy vidět aspoň 2 s
+    setTimeout(() => { sp.style.opacity = '0'; setTimeout(() => sp.remove(), 350); }, wait);
+  }
   fetch('questions.json').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => {
     DATA = d; subjects = d.subjects;
     S.subj = S.subj.filter(id => subjects.some(s => s.id === id));
     buildChips(); syncTop(); render();
     window.__appReady = true;
-    const sp = $('#splash'); if (sp) { sp.style.opacity = '0'; setTimeout(() => sp.remove(), 350); }
+    hideSplash();
     fetch('explain.json').then(r => r.ok ? r.json() : {}).catch(() => ({})).then(x => { EXPL = x || {}; render(); });
   }).catch(async () => {
     // možná rozbitá uložená verze (service worker cache) – jednorázově vyčistit a načíst znovu
@@ -1415,7 +1420,7 @@ footer a { color: var(--accent); }
       try { if (window.caches) { const ks = await caches.keys(); for (const k of ks) await caches.delete(k); } } catch {}
       location.reload(); return;
     }
-    const sp = $('#splash'); if (sp) { sp.style.opacity = '0'; setTimeout(() => sp.remove(), 350); }
+    hideSplash();
     const stage = $('#stage'); stage.textContent = '';
     stage.append(el('div', { class: 'card empty' }, el('b', { text: 'Otázky se nepodařilo načíst' }), 'Zkontrolujte připojení a obnovte stránku.'));
   });
